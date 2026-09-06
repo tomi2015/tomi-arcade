@@ -23,7 +23,8 @@
   html,body{margin:0;padding:0;height:100%;background:var(--void2);overflow:hidden;
     font-family:'Fredoka',system-ui,sans-serif;color:var(--cream);-webkit-user-select:none;user-select:none;}
   #wrap{position:fixed;inset:0;}
-  canvas{position:absolute;inset:0;width:100%;height:100%;display:block;background:var(--void2);cursor:crosshair;}
+  canvas{position:absolute;inset:0;width:100%;height:100%;display:block;background:var(--void2);cursor:crosshair;
+    touch-action:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;}
   .overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
     padding:24px;z-index:10;}
   .overlay[hidden]{display:none!important;}
@@ -152,6 +153,10 @@
       <div class="kicker">Nueva partida</div>
       <h2 class="title">Elige personaje</h2>
       <div class="pcount">
+        <button class="pc sel" data-dev="pc">🖥 PC</button>
+        <button class="pc" data-dev="mobile">📱 Celular</button>
+      </div>
+      <div class="pcount">
         <button class="pc sel" data-n="1">1 jugador</button>
         <button class="pc" data-n="2">2 jugadores</button>
       </div>
@@ -203,7 +208,7 @@ const once = Object.create(null); // one-shot key presses
 const touch = { on:false,
   mv:{ act:false, x:0, y:0 },        // stick de movimiento
   aim:{ act:false, x:0, y:0 },       // stick de arma (act = apuntando/disparando)
-  aimTap:false, jumpHeld:false, jumpTap:false };
+  aimTap:false, jumpHeld:false, jumpTap:false, eTap:false };
 
 window.addEventListener('keydown', e=>{
   const k = e.key.length===1 ? e.key.toLowerCase() : e.key;
@@ -221,10 +226,91 @@ cv.addEventListener('mousemove', e=>{ const r=cv.getBoundingClientRect(); mouse.
 cv.addEventListener('mousedown', e=>{ if(e.button===0){ mouse.down=true; mouse.clicked=true; audioInit(); } });
 window.addEventListener('mouseup', e=>{ if(e.button===0) mouse.down=false; });
 cv.addEventListener('contextmenu', e=>e.preventDefault());
-cv.addEventListener('touchstart', e=>{ audioInit(); }, {passive:true});
 
-function pressed(k){ const v = once[k]; return !!v; }
-function clearOnce(){ for(const k in once) once[k]=false; mouse.clicked=false; touch.aimTap=false; touch.jumpTap=false; }
+/* ---- touch / mando en pantalla ---- */
+const sticks = { move:null, aim:null };
+const jumpBtn = { x:0, y:0, r:44, id:null };
+const eBtn = { x:0, y:0, r:34 };
+function layoutTouch(){
+  jumpBtn.r = Math.max(36, Math.min(58, VW*0.08));
+  jumpBtn.x = VW - jumpBtn.r - 26;
+  jumpBtn.y = VH - jumpBtn.r - 28;
+  eBtn.r = jumpBtn.r * 0.78;
+  eBtn.x = jumpBtn.x - jumpBtn.r - eBtn.r - 14;
+  eBtn.y = jumpBtn.y + jumpBtn.r - eBtn.r;
+}
+function setMobile(on){
+  touch.on = on;
+  layoutTouch();
+  const h = document.getElementById('fsHint');
+  if(h) h.textContent = on
+    ? 'Joystick izq: mover  ·  joystick der: apuntar y disparar  ·  botón: saltar'
+    : 'Click en la ventana para capturar el teclado · P para pausa';
+}
+window.addEventListener('resize', layoutTouch); layoutTouch();
+function tpos(t){ const r = cv.getBoundingClientRect(); return { x:t.clientX-r.left, y:t.clientY-r.top }; }
+function menuTapMode(){ return ['cut','puzzle','mash','credits'].includes(G.mode); }
+
+cv.addEventListener('touchstart', e=>{
+  audioInit();
+  for(const t of e.changedTouches){
+    const p = tpos(t);
+    if(!touch.on){ mouse.x=p.x; mouse.y=p.y; mouse.down=true; mouse.clicked=true; continue; }
+    if(menuTapMode()){ mouse.x=p.x; mouse.y=p.y; mouse.clicked=true; continue; }
+    if(Math.hypot(p.x-jumpBtn.x,p.y-jumpBtn.y) < jumpBtn.r*1.25 && jumpBtn.id==null){
+      jumpBtn.id = t.identifier; touch.jumpTap = true; touch.jumpHeld = true; continue;
+    }
+    if(Math.hypot(p.x-eBtn.x,p.y-eBtn.y) < eBtn.r*1.3){ touch.eTap = true; continue; }
+    if(p.x < VW*0.5 && !sticks.move){
+      sticks.move = { id:t.identifier, ox:p.x, oy:p.y, x:0, y:0 }; touch.mv.act = true; continue;
+    }
+    if(p.x >= VW*0.5 && !sticks.aim){
+      sticks.aim = { id:t.identifier, ox:p.x, oy:p.y, x:0, y:0 };
+      touch.aim.act = true; touch.aimTap = true; continue;
+    }
+  }
+  if(touch.on) e.preventDefault();
+}, {passive:false});
+
+cv.addEventListener('touchmove', e=>{
+  for(const t of e.changedTouches){
+    const p = tpos(t);
+    if(!touch.on){ mouse.x=p.x; mouse.y=p.y; continue; }
+    for(const key of ['move','aim']){
+      const s = sticks[key];
+      if(s && s.id===t.identifier){
+        let dx = p.x - s.ox, dy = p.y - s.oy;
+        const mag = Math.hypot(dx,dy), max = 54;
+        if(mag > max){ dx = dx/mag*max; dy = dy/mag*max; }
+        s.x = dx/max; s.y = dy/max;
+        if(key==='move'){ touch.mv.x = s.x; touch.mv.y = s.y; }
+        else { if(Math.hypot(s.x,s.y) > 0.28){ touch.aim.x = s.x; touch.aim.y = s.y; } }
+      }
+    }
+  }
+  if(touch.on) e.preventDefault();
+}, {passive:false});
+
+function _touchEnd(e){
+  for(const t of e.changedTouches){
+    if(jumpBtn.id===t.identifier){ jumpBtn.id = null; touch.jumpHeld = false; }
+    for(const key of ['move','aim']){
+      const s = sticks[key];
+      if(s && s.id===t.identifier){
+        sticks[key] = null;
+        if(key==='move'){ touch.mv.act=false; touch.mv.x=0; touch.mv.y=0; }
+        else touch.aim.act = false;
+      }
+    }
+  }
+  if(!touch.on) mouse.down = false;
+}
+cv.addEventListener('touchend', _touchEnd);
+cv.addEventListener('touchcancel', _touchEnd);
+
+function pressed(k){ if(k==='e' && touch.eTap) return true; return !!once[k]; }
+function clearOnce(){ for(const k in once) once[k]=false; mouse.clicked=false;
+  touch.aimTap=false; touch.jumpTap=false; touch.eTap=false; }
 
 /* ============================ AUDIO ============================ */
 let AC=null, master=null, musicGain=null, musicTimer=0, musicMood='day';
@@ -698,11 +784,11 @@ function doAttack(dt, targets, bossHit){
   // ---- GATO: martillo / minigun ----
   const wpMel = G.run.hammer, wpGun = G.run.minigun;
   if(!wpMel && !wpGun){
-    if(mouse.clicked){ SFX.deny(); toast('Necesitas un arma (tienda de Wonder).',1.8); }
+    if(attackPressed()){ SFX.deny(); toast('Necesitas un arma (tienda de Wonder).',1.8); }
     return;
   }
   // minigun: hold to fire
-  if(wpGun && mouse.down){
+  if(wpGun && attackHeld()){
     if(G.run.ammo>0 && p.fireCd<=0){
       p.fireCd = 0.085;
       G.run.ammo--;
@@ -716,8 +802,8 @@ function doAttack(dt, targets, bossHit){
       if(!wpMel) toast('Sin munición. Compra más o usa el martillo.',1.6);
     }
   }
-  // hammer: click to swing (priority when both, via right? keep: click swings if not holding gun-fire)
-  if(wpMel && mouse.clicked && p.swingCd<=0 && !(wpGun && G.run.ammo>0)){
+  // hammer: click to swing
+  if(wpMel && attackPressed() && p.swingCd<=0 && !(wpGun && G.run.ammo>0)){
     p.swing = 0.26; p.swingCd = 0.44; SFX.swing();
     const reach = 62, arc = 1.5;
     const hitAng = p.aim;
@@ -1349,7 +1435,7 @@ function startMash(mon){
 function updateMash(dt){
   const mg = G.mash; if(!mg) return;
   mg.time -= dt;
-  if(pressed(' ')){ mg.got++; SFX.jump(); if(G.player) G.player.walkT+=1; }
+  if(pressed(' ') || mouse.clicked){ mg.got++; SFX.jump(); if(G.player) G.player.walkT+=1; }
   if(mg.got >= mg.need){
     // escaped
     const m = mg.mon, p = G.player;
@@ -1835,15 +1921,17 @@ function updateCoasterBoss(dt){
   const p = G.player;
   let ix = (keys['d']?1:0)-(keys['a']?1:0) + (keys['ArrowRight']?1:0)-(keys['ArrowLeft']?1:0);
   let iy = (keys['s']?1:0)-(keys['w']?1:0) + (keys['ArrowDown']?1:0)-(keys['ArrowUp']?1:0);
-  g.cartX = clamp(g.cartX + ix*440*dt, 40, VW-40);
-  g.cartY = clamp(g.cartY + iy*320*dt, VH*0.4, VH-64);
+  if(touch.on && touch.mv.act){ ix += touch.mv.x; iy += touch.mv.y; }
+  g.cartX = clamp(g.cartX + clamp(ix,-1,1)*440*dt, 40, VW-40);
+  g.cartY = clamp(g.cartY + clamp(iy,-1,1)*320*dt, VH*0.4, VH-64);
   p.x = g.cartX; p.y = g.cartY; p.invT -= dt;
 
   // shoot
   p.fireCd -= dt;
-  if(mouse.down && p.fireCd<=0){
+  const firing = mouse.down || (touch.on && touch.aim.act);
+  if(firing && p.fireCd<=0){
     p.fireCd = 0.11;
-    const a = ang(g.cartX,g.cartY,mouse.x,mouse.y);
+    const a = (touch.on && touch.aim.act) ? Math.atan2(touch.aim.y, touch.aim.x) : ang(g.cartX,g.cartY,mouse.x,mouse.y);
     G.shots.push({ x:g.cartX, y:g.cartY-10, vx:Math.cos(a)*720, vy:Math.sin(a)*720, r:5, life:1.4, dmg:1, friendly:true });
     SFX.shoot();
   }
@@ -2849,7 +2937,7 @@ function drawPlayer(){
 
   // weapon
   ctx.globalAlpha = 1;
-  if(G.run.minigun && mouse.down){
+  if(G.run.minigun && attackHeld()){
     ctx.save(); ctx.rotate(p.aim);
     ctx.fillStyle='#26262a'; ctx.fillRect(6,-4,22,8);
     ctx.fillStyle='#3e3e44'; ctx.fillRect(26,-3,7,6);
@@ -3339,14 +3427,14 @@ function render(){
 
   const onCoaster = G.coasterGame && LEVELS[G.level] && LEVELS[G.level].boss==='coaster';
   if(G.mode==='title'){ drawTitleBg(); return; }
-  if(G.mode==='cut'){ drawCut(); return; }
+  if(G.mode==='cut'){ drawCut(); drawTouchControls(true); return; }
   if(G.mode==='credits'){ drawCredits(); return; }
   if(G.mode==='gameover'){
     if(onCoaster) drawCoasterScene(); else drawWorldScene(true);
     drawVignette(0.82); return;
   }
-  if((G.mode==='boss' || (G.mode==='pause' && pausedFrom==='boss')) && onCoaster){ drawCoasterScene(); return; }
-  if(G.mode==='servers' || (G.mode==='pause' && pausedFrom==='servers')){ drawServerScene(); return; }
+  if((G.mode==='boss' || (G.mode==='pause' && pausedFrom==='boss')) && onCoaster){ drawCoasterScene(); drawTouchControls(); return; }
+  if(G.mode==='servers' || (G.mode==='pause' && pausedFrom==='servers')){ drawServerScene(); drawTouchControls(); return; }
 
   drawWorldScene(false);
   if(G.mode==='puzzle') drawPuzzle();
@@ -3354,6 +3442,43 @@ function render(){
   if(G.mode==='shop') drawVignette(0.55);
   if(G.mode==='pause'){ drawVignette(0.7);
     ctx.fillStyle='rgba(8,6,16,0.72)'; ctx.fillRect(0,0,VW,VH); }
+  drawTouchControls();
+}
+function drawTouchControls(cutMode){
+  if(!touch.on) return;
+  if(cutMode){
+    ctx.save(); ctx.globalAlpha = 0.5; ctx.fillStyle=C.cream;
+    ctx.font="600 13px Fredoka, sans-serif"; ctx.textAlign='center';
+    ctx.fillText('toca la pantalla para continuar', VW/2, VH-8);
+    ctx.restore(); return;
+  }
+  if(!['play','chase','boss','escaping','servers'].includes(G.mode)) return;
+  ctx.save();
+  const ring=(x,y,r,c)=>{ ctx.strokeStyle=c; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.stroke(); };
+  const dot=(x,y,r,c)=>{ ctx.fillStyle=c; ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill(); };
+  // move
+  if(sticks.move){ ring(sticks.move.ox,sticks.move.oy,54,'rgba(255,255,255,0.16)');
+    dot(sticks.move.ox+sticks.move.x*54, sticks.move.oy+sticks.move.y*54, 22,'rgba(255,255,255,0.3)'); }
+  else ring(VW*0.15, VH-VH*0.24, 46,'rgba(255,255,255,0.09)');
+  // aim
+  if(sticks.aim){ ring(sticks.aim.ox,sticks.aim.oy,54,'rgba(200,145,46,0.28)');
+    dot(sticks.aim.ox+sticks.aim.x*54, sticks.aim.oy+sticks.aim.y*54, 22,'rgba(200,145,46,0.4)'); }
+  else ring(VW*0.82, VH-VH*0.30, 46,'rgba(200,145,46,0.12)');
+  // jump / fly button
+  const jb = jumpBtn, p = G.player;
+  dot(jb.x, jb.y, jb.r, touch.jumpHeld ? 'rgba(255,255,255,0.32)' : 'rgba(255,255,255,0.16)');
+  ring(jb.x, jb.y, jb.r, 'rgba(255,255,255,0.28)');
+  ctx.fillStyle='#f0ebe0'; ctx.font="700 12px Bungee, sans-serif"; ctx.textAlign='center'; ctx.textBaseline='middle';
+  const lbl = p ? (p.char==='meowl' ? (p.flying?'BAJAR':'VOLAR') : p.char==='baby' ? '·' : 'SALTA') : 'SALTA';
+  ctx.fillText(lbl, jb.x, jb.y);
+  // interact (E) button — resalta si hay algo con que interactuar
+  const nearThing = !!getPrompt();
+  dot(eBtn.x, eBtn.y, eBtn.r, nearThing ? 'rgba(200,145,46,0.34)' : 'rgba(255,255,255,0.12)');
+  ring(eBtn.x, eBtn.y, eBtn.r, nearThing ? 'rgba(200,145,46,0.6)' : 'rgba(255,255,255,0.22)');
+  ctx.fillStyle = nearThing ? '#f0d8a8' : '#c8c2b4'; ctx.font="700 13px Bungee, sans-serif";
+  ctx.fillText('E', eBtn.x, eBtn.y);
+  ctx.textBaseline='alphabetic';
+  ctx.restore();
 }
 function drawWorldScene(dim){
   if(!G.world){ ctx.fillStyle=C.void2; ctx.fillRect(0,0,VW,VH); return; }
@@ -3822,12 +3947,14 @@ function openCharSelect(){
   document.getElementById('btnCharGo').disabled = true;
   document.getElementById('btnCharSkip').disabled = true;
   document.getElementById('charHint').textContent = 'Toca un personaje para verlo.';
+  syncCharToggles();
   renderCharSelect();
   hidePanels(); showPanel('ovChar');
 }
 function beginRun(withIntro){
   if(!selChar) return;
   applyChar(selChar);
+  setMobile(selDevice==='mobile');
   hidePanels();
   if(withIntro) startIntro(); else startLevel(0);
 }
@@ -3837,13 +3964,24 @@ document.getElementById('btnNew').addEventListener('click', openCharSelect);
 document.getElementById('btnCharBack').addEventListener('click', ()=>{ hidePanels(); showPanel('ovTitle'); });
 document.getElementById('btnCharGo').addEventListener('click', ()=>beginRun(true));
 document.getElementById('btnCharSkip').addEventListener('click', ()=>beginRun(false));
+let selDevice = (('ontouchstart' in window) || navigator.maxTouchPoints>0) ? 'mobile' : 'pc';
+function syncCharToggles(){
+  document.querySelectorAll('#ovChar .pc').forEach(x=>{
+    if(x.dataset.dev) x.classList.toggle('sel', x.dataset.dev===selDevice);
+    if(x.dataset.n) x.classList.toggle('sel', +x.dataset.n===selPlayers);
+  });
+}
 document.querySelectorAll('#ovChar .pc').forEach(b=>{
   b.addEventListener('click', ()=>{
+    if(b.dataset.dev){ selDevice = b.dataset.dev; syncCharToggles();
+      document.getElementById('charHint').textContent = selDevice==='mobile'
+        ? 'Modo celular: joystick para moverte, joystick derecho para apuntar y disparar, botón de salto.'
+        : 'Modo PC: WASD para moverte, ratón para apuntar, CLICK para atacar.';
+      return; }
     const n = +b.dataset.n;
-    if(n===2){ toast && 0; document.getElementById('charHint').textContent =
+    if(n===2){ document.getElementById('charHint').textContent =
       '2 jugadores (pantalla dividida) — próximamente. Por ahora, 1 jugador.'; return; }
-    selPlayers = n;
-    document.querySelectorAll('#ovChar .pc').forEach(x=>x.classList.toggle('sel', +x.dataset.n===n));
+    selPlayers = n; syncCharToggles();
   });
 });
 _cutSkipBtn.addEventListener('click', ()=>{
