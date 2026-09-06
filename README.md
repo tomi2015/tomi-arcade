@@ -1,6 +1,6 @@
 # Tomi Arcade
 
-Página web con los juegos de [tomi2015](https://github.com/tomi2015).
+Página web con mis juegos.
 Sitio estático, desplegado en Vercel.
 
 ```

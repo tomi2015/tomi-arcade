@@ -64,6 +64,12 @@
   .tick{font-family:'Bungee',cursive;color:#c8912e;font-size:17px;margin-top:6px;}
   .hint{font-size:12px;color:#6a6152;margin-top:10px;}
   #fsHint{position:absolute;left:0;right:0;bottom:10px;text-align:center;font-size:12px;color:#ffffff40;z-index:5;pointer-events:none;}
+  #btnCutSkip{position:absolute;right:18px;bottom:16px;z-index:20;
+    font-family:'Bungee',cursive;font-size:12px;letter-spacing:.04em;cursor:pointer;
+    background:#2a2438;color:var(--cream);border:1px solid #4a3f56;border-radius:6px;padding:10px 16px;
+    box-shadow:0 3px 0 #100c18;}
+  #btnCutSkip:hover{background:#332b44;}
+  #btnCutSkip[hidden]{display:none!important;}
   @media (max-width:520px){ .controls{grid-template-columns:1fr;} }
 </style>
 
@@ -121,6 +127,7 @@
     </div>
   </div>
 
+  <button id="btnCutSkip" hidden>Saltar intro ▶</button>
   <div id="fsHint">Click en la ventana para capturar el teclado · P para pausar</div>
 </div>
 
@@ -1414,10 +1421,10 @@ function drawServerScene(){
 
   ctx.restore(); // shake
   // dark vignette + light on player
-  const lp = ctx.createRadialGradient(p.x-cam.x,p.y-cam.y,60, p.x-cam.x,p.y-cam.y,420);
-  lp.addColorStop(0,'rgba(8,10,20,0)'); lp.addColorStop(1,'rgba(8,10,20,0.7)');
+  const lp = ctx.createRadialGradient(p.x-cam.x,p.y-cam.y,120, p.x-cam.x,p.y-cam.y,600);
+  lp.addColorStop(0,'rgba(8,10,20,0)'); lp.addColorStop(1,'rgba(8,10,20,0.32)');
   ctx.fillStyle=lp; ctx.fillRect(0,0,VW,VH);
-  drawVignette(0.5);
+  drawVignette(0.4);
   if(G.flash>0){ ctx.fillStyle='rgba(158,31,44,'+clamp(G.flash,0,0.62)+')'; ctx.fillRect(0,0,VW,VH); }
 
   drawHUD();
@@ -1884,10 +1891,11 @@ function startEnding(){
   };
 }
 function updateCut(dt){
-  const c = G.cut; c.t += dt; G.t += dt;
+  const c = G.cut; if(!c){ return; }
+  c.t += dt; G.t += dt;
   if((pressed(' ')||pressed('Enter')||mouse.clicked) && c.t>0.45){
     c.i++; c.t = 0; SFX.bell();
-    if(c.i >= c.beats.length){ c.done(); return; }
+    if(c.i >= c.beats.length){ const d=c.done; G.cut=null; if(d) d(); return; }
   }
 }
 
@@ -2615,12 +2623,12 @@ function drawPlayer(){
 /* ============================ DRAW: WORLD ============================ */
 function moodColors(mood){
   switch(mood){
-    case 'day':  return { a:'#241b33', b:'#2c2240', vig:0.44 };
-    case 'dusk': return { a:'#171024', b:'#1d1530', vig:0.62 };
-    case 'dark': return { a:'#0d0916', b:'#120d1e', vig:0.80 };
-    case 'void': return { a:'#080510', b:'#0d0818', vig:0.92 };
+    case 'day':  return { a:'#2a2140', b:'#332752', vig:0.42 };
+    case 'dusk': return { a:'#241a38', b:'#2e2146', vig:0.48 };
+    case 'dark': return { a:'#1e1630', b:'#261b3e', vig:0.52 };
+    case 'void': return { a:'#0e0820', b:'#160c2a', vig:0.66 };
     case 'servers': return { a:'#0e1424', b:'#141b30', vig:0.5 };
-    default:     return { a:'#120c1e', b:'#181224', vig:0.6 };
+    default:     return { a:'#221838', b:'#2a2044', vig:0.5 };
   }
 }
 function drawGround(){
@@ -3046,20 +3054,16 @@ function drawWorldScene(dim){
     ctx.fillStyle='#000'; ctx.fillRect(0,0,VW,VH);
   }
   const mc = moodColors(G.world.mood);
-  // darkness with a light around the cat
-  const wantDark = (G.mode==='chase') || G.blackout || G.horror || G.mode==='boss';
-  if(wantDark && G.player){
+  // "se va la luz" SOLO en el nivel del apagón (blackout). El resto con luz normal.
+  if(G.blackout && G.player){
     const sx = G.player.x - cam.x, sy = G.player.y - cam.y;
-    let rad = G.mode==='chase' ? 235
-      : (G.blackout ? (120 + G.litFrac*300)
-      : (G.mode==='boss' ? 340 : 250));
-    rad *= 1 + 0.05*Math.sin(G.t*7);
+    let rad = (120 + G.litFrac*300) * (1 + 0.05*Math.sin(G.t*7));
     const lg = ctx.createRadialGradient(sx,sy, rad*0.15, sx,sy, rad);
     lg.addColorStop(0,'rgba(6,4,12,0)');
     lg.addColorStop(0.6,'rgba(6,4,12,0.30)');
-    lg.addColorStop(1, G.blackout ? 'rgba(3,2,7,0.985)' : 'rgba(5,3,10,0.95)');
+    lg.addColorStop(1, 'rgba(3,2,7,0.985)');
     ctx.fillStyle=lg; ctx.fillRect(0,0,VW,VH);
-    // additive glow from lit machines (drawn on top of the dark)
+    // additive glow from lit machines
     if(G.machines){ for(const m of G.machines){ if(!m.lit) continue;
       const mx=m.x-cam.x, my=m.y-cam.y;
       const gl=ctx.createRadialGradient(mx,my,8,mx,my,190);
@@ -3067,7 +3071,7 @@ function drawWorldScene(dim){
       ctx.fillStyle=gl; ctx.beginPath(); ctx.arc(mx,my,190,0,7); ctx.fill();
     }}
   }
-  drawVignette(mc.vig + (G.horror? 0.1*Math.sin(G.t*2)+0.1 : 0));
+  drawVignette(G.blackout ? mc.vig : Math.min(mc.vig, 0.5));
   if(G.flash>0){ ctx.fillStyle='rgba(158,31,44,'+clamp(G.flash,0,0.62)+')'; ctx.fillRect(0,0,VW,VH); }
 
   drawHUD();
@@ -3166,7 +3170,8 @@ function drawTitleBg(){
   drawVignette(0.62);
 }
 function drawCut(){
-  const c = G.cut, b = c.beats[c.i];
+  const c = G.cut; if(!c) return;
+  const b = c.beats[c.i];
   if(!b) return;
   ctx.fillStyle = b.bg; ctx.fillRect(0,0,VW,VH);
   b.draw(1, c.t);
@@ -3300,8 +3305,10 @@ function drawPuzzle(){
 
 /* ============================ PANEL HELPERS ============================ */
 const panels = ['ovTitle','ovShop','ovPause','ovOver'];
-function showPanel(id){ for(const p of panels) document.getElementById(p).hidden = (p!==id); }
-function hidePanels(){ for(const p of panels) document.getElementById(p).hidden = true; }
+function showPanel(id){ for(const p of panels){ const el=document.getElementById(p);
+  el.hidden = (p!==id); el.style.display = (p===id) ? '' : 'none'; } }
+function hidePanels(){ for(const p of panels){ const el=document.getElementById(p);
+  el.hidden = true; el.style.display = 'none'; } }
 
 let pausedFrom = null;
 function togglePause(){
@@ -3314,6 +3321,7 @@ function togglePause(){
 
 /* ============================ MAIN LOOP ============================ */
 let last = performance.now();
+const _cutSkipBtn = document.getElementById('btnCutSkip');
 function frame(t){
   let dt = (t - last)/1000; last = t;
   if(dt > 0.05) dt = 0.05;
@@ -3321,6 +3329,7 @@ function frame(t){
   update(dt);
   render();
   clearOnce();
+  _cutSkipBtn.hidden = (G.mode !== 'cut');
   requestAnimationFrame(frame);
 }
 function update(dt){
@@ -3394,6 +3403,9 @@ function updatePlay(dt){
 /* ============================ BUTTON WIRING ============================ */
 document.getElementById('btnStart').addEventListener('click', ()=>{ audioInit(); hidePanels(); startIntro(); });
 document.getElementById('btnSkip').addEventListener('click', ()=>{ audioInit(); hidePanels(); G.run.hammer=true; startLevel(0); });
+_cutSkipBtn.addEventListener('click', ()=>{
+  if(G.mode==='cut' && G.cut){ const d = G.cut.done; G.cut = null; _cutSkipBtn.hidden = true; if(d) d(); }
+});
 document.getElementById('btnShopGo').addEventListener('click', ()=>{
   hidePanels();
   if(document.getElementById('btnShopGo').textContent.includes('Volver')){
