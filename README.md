@@ -1,7 +1,15 @@
 # Tomi Arcade
 
 Página web con los juegos de [tomi2015](https://github.com/tomi2015).
-Sitio estático (un solo `index.html`), desplegado en Vercel.
+Sitio estático, desplegado en Vercel.
+
+```
+index.html            → la portada (rejilla de juegos)
+wonderland/index.html  → Wonderland: El Coma (el juego, autónomo)
+```
+
+Cada juego vive en su propia carpeta y se enlaza con una ruta relativa
+(`/wonderland/`), así que todo es público y no pide iniciar sesión.
 
 ## Añadir un juego
 
@@ -21,10 +29,14 @@ Sitio estático (un solo `index.html`), desplegado en Vercel.
 }
 ```
 
-3. Guarda, y publica:
+3. Si el juego es un archivo HTML propio, mételo en su carpeta:
+   `nuevojuego/index.html`, y pon `url: "/nuevojuego/"`.
+   Si está en otra web, pon la URL completa.
+
+4. Guarda y publica:
 
 ```bash
-git add index.html
+git add -A
 git commit -m "Añadir <juego>"
 git push
 ```
