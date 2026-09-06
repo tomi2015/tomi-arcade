@@ -70,7 +70,28 @@
     box-shadow:0 3px 0 #100c18;}
   #btnCutSkip:hover{background:#332b44;}
   #btnCutSkip[hidden]{display:none!important;}
-  @media (max-width:520px){ .controls{grid-template-columns:1fr;} }
+  .booth.wide{max-width:720px;}
+  .btnlink{background:none;border:none;color:#6a6152;font-family:'Fredoka';font-size:13px;
+    cursor:pointer;margin-top:12px;text-decoration:underline;}
+  .btnlink:hover{color:#c2b48e;}
+  .pcount{display:flex;gap:8px;justify-content:center;margin:6px 0 14px;}
+  .pc{font-family:'Bungee',cursive;font-size:11px;letter-spacing:.03em;cursor:pointer;
+    background:transparent;color:#8a8069;border:1px solid #4a3f56;border-radius:5px;padding:8px 14px;}
+  .pc.sel{background:#3a2e1a;color:#d8b878;border-color:#5a4a2a;}
+  .chargrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:8px 0 4px;}
+  .cchar{display:flex;gap:12px;align-items:flex-start;text-align:left;cursor:pointer;
+    background:rgba(255,255,255,.03);border:1px solid #3a3346;border-radius:8px;padding:12px;
+    transition:border-color .12s, background .12s;}
+  .cchar:hover{border-color:#5a4a6a;}
+  .cchar.sel{border-color:#c8912e;background:rgba(200,145,46,.08);}
+  .cchar .em{font-size:30px;line-height:1;flex:none;filter:grayscale(.2);}
+  .cchar .ct{flex:1;min-width:0;}
+  .cchar .ct .nm{font-family:'Fredoka';font-weight:600;color:#d8cdae;font-size:15px;}
+  .cchar .ct .tp{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.06em;
+    text-transform:uppercase;color:#c8912e;margin:1px 0 5px;}
+  .cchar .ct .ds{font-size:11.5px;line-height:1.4;color:#8a8069;}
+  .charhint{font-size:12px;color:#6a6152;margin:10px 0 4px;min-height:1.2em;}
+  @media (max-width:560px){ .controls{grid-template-columns:1fr;} .chargrid{grid-template-columns:1fr;} }
 </style>
 
 <div id="wrap">
@@ -91,8 +112,7 @@
         <div><b>ESPACIO</b>saltar / esquivar / parry</div><div><b>E</b>recoger / interactuar</div>
         <div><b>CLICK</b>atacar / parry</div><div><b>P / ESC</b>pausa</div>
       </div>
-      <button class="btn" id="btnStart">Entrar al coma</button>
-      <button class="btn alt" id="btnSkip">Saltar intro</button>
+      <button class="btn" id="btnNew">▶ Nueva partida</button>
       <p class="hint">Se recomienda sonido. Haz click para empezar.</p>
     </div>
   </div>
@@ -124,6 +144,24 @@
       <h2 class="title" id="overTitle">Wonderland te reclama</h2>
       <p class="lead" id="overText">Te quedaste sin vidas. La feria nunca cierra.</p>
       <button class="btn danger" id="btnRetry">Reiniciar</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="ovChar" hidden>
+    <div class="booth wide">
+      <div class="kicker">Nueva partida</div>
+      <h2 class="title">Elige personaje</h2>
+      <div class="pcount">
+        <button class="pc sel" data-n="1">1 jugador</button>
+        <button class="pc" data-n="2">2 jugadores</button>
+      </div>
+      <div class="chargrid" id="charGrid"></div>
+      <p class="charhint" id="charHint">Toca un personaje para verlo.</p>
+      <div>
+        <button class="btn" id="btnCharGo" disabled>▶ Jugar (con intro)</button>
+        <button class="btn alt" id="btnCharSkip" disabled>Saltar intro</button>
+      </div>
+      <button class="btnlink" id="btnCharBack">← volver</button>
     </div>
   </div>
 
@@ -161,6 +199,11 @@ const C = {
 const keys = Object.create(null);
 const mouse = { x:VW/2, y:VH/2, down:false, clicked:false };
 const once = Object.create(null); // one-shot key presses
+// touch / mando en pantalla (se llena en modo celular)
+const touch = { on:false,
+  mv:{ act:false, x:0, y:0 },        // stick de movimiento
+  aim:{ act:false, x:0, y:0 },       // stick de arma (act = apuntando/disparando)
+  aimTap:false, jumpHeld:false, jumpTap:false };
 
 window.addEventListener('keydown', e=>{
   const k = e.key.length===1 ? e.key.toLowerCase() : e.key;
@@ -181,7 +224,7 @@ cv.addEventListener('contextmenu', e=>e.preventDefault());
 cv.addEventListener('touchstart', e=>{ audioInit(); }, {passive:true});
 
 function pressed(k){ const v = once[k]; return !!v; }
-function clearOnce(){ for(const k in once) once[k]=false; mouse.clicked=false; }
+function clearOnce(){ for(const k in once) once[k]=false; mouse.clicked=false; touch.aimTap=false; touch.jumpTap=false; }
 
 /* ============================ AUDIO ============================ */
 let AC=null, master=null, musicGain=null, musicTimer=0, musicMood='day';
@@ -278,7 +321,8 @@ let G = null;
 function newRun(){
   G = {
     mode:'title', t:0, level:0,
-    run:{ lives:4, maxLives:4, hp:3, hpMax:3, tickets:0, hammer:false, minigun:false, ammo:0,
+    run:{ char:'cat', lives:4, maxLives:4, hp:3, hpMax:3, tickets:0,
+          hammer:true, minigun:false, ammo:0, pistol:false, pistolAmmo:0, pistolMax:10, disguises:0,
           boots:false, shield:false, bonusTime:0 },
     world:null, player:null, cam:{x:0,y:0}, shake:0,
     lumins:[], monsters:[], shots:[], parts:[], pickups:[],
@@ -300,6 +344,7 @@ function toast(txt, time){ G.msg = txt; G.msgT = time||2.6; }
 function hurtPlayer(n, kx, ky){
   const p = G.player, r = G.run;
   if(!p || p.invT>0) return;
+  if(p.char==='meowl' && p.disguiseT>0) return;   // disfrazado: nadie lo toca
   n = n||1;
   if(r.shield){ r.shield=false; p.invT=1.1; toast('¡Escudo roto!',1.6); SFX.hit(); G.shake=8;
     if(kx!==undefined){ const a=ang(kx,ky,p.x,p.y); p.vx+=Math.cos(a)*240; p.vy+=Math.sin(a)*240; }
@@ -324,6 +369,43 @@ function gameOver(reason){
     : 'Te quedaste sin vidas. Vuelves al principio del sueño.';
   showPanel('ovOver');
   SFX.scream();
+}
+
+/* ============================ PERSONAJES ============================ */
+const CHARACTERS = {
+  cat: {
+    name:'Gato Blanco', type:'Centinela', motif:'🐱',
+    desc:'El equilibrado. Martillo de juguete: golpea a los monstruos, rompe proyectiles y hace parry. Pulsa ESPACIO para saltar y esquivar.',
+    lives:4, hp:3, spd:1.0, weapon:'hammer'
+  },
+  meowl: {
+    name:'Meowl', type:'Explorador', motif:'🦉',
+    desc:'Gato búho. En vez de saltar, VUELA: más rápido, pero gasta estámina. No tiene arma: con el botón de ataque se pone un disfraz de monstruo al azar y los monstruos no lo ven (tiempo limitado). Recarga disfraces alimentando al Gusano.',
+    lives:4, hp:3, spd:1.05, weapon:'disguise'
+  },
+  agent: {
+    name:'Agente', type:'Francotirador', motif:'🕵️',
+    desc:'Agente secreto del hospital de animales. Pistola: cada bala mata a un monstruo de un tiro. Empieza con 1 bala y gana más cada nivel (máx 10). Salta y corre más rápido.',
+    lives:4, hp:3, spd:1.14, weapon:'pistol'
+  },
+  baby: {
+    name:'Persuer Bebé', type:'Carnicero', motif:'👶',
+    desc:'Rapidísimo pero frágil: solo 3 corazones. NO salta. Necesita carne fresca — si su barra se vacía empieza a morir (y se vuelve aún más veloz). Con el botón de ataque saca carne de los monstruos para rellenarla.',
+    lives:3, hp:3, spd:1.3, weapon:'harvest'
+  }
+};
+function applyChar(id){
+  if(!CHARACTERS[id]) id = 'cat';
+  const c = CHARACTERS[id], r = G.run;
+  r.char = id;
+  r.maxLives = c.lives; r.lives = c.lives;
+  r.hpMax = c.hp; r.hp = c.hp;
+  r.hammer = (c.weapon==='hammer');
+  r.pistol = (c.weapon==='pistol');
+  r.pistolAmmo = r.pistol ? 1 : 0;
+  r.pistolMax = 10;
+  r.disguises = (c.weapon==='disguise') ? 1 : 0;
+  r.minigun = false; r.ammo = 0;
 }
 
 /* ============================ LEVELS ============================ */
@@ -458,17 +540,26 @@ function buildArenaWorld(mood, wd, ht){
 function mkPlayer(x,y){
   return { x, y, r:16, vx:0, vy:0, face:0, aim:0, z:0,
     invT:0, hopT:0, hopCd:0, swing:0, swingCd:0, fireCd:0,
-    walkT:0, running:false };
+    walkT:0, running:false,
+    char: (G.run && G.run.char) || 'cat',
+    flying:false, flyStam:1, disguiseT:0, disguise:null,
+    meat:80, meatEmpty:false, dyingT:0 };
 }
 function updatePlayer(dt, opts){
   opts = opts || {};
   const p = G.player;
-  const spd = (opts.baseSpeed || 178) * (G.run.boots?1.14:1);
+  const cc = CHARACTERS[p.char] || CHARACTERS.cat;
+  let spd = (opts.baseSpeed || 178) * (G.run.boots?1.14:1) * cc.spd;
+  if(p.char==='baby' && p.meatEmpty) spd *= 1.4;   // desesperado = más veloz
+  if(p.char==='meowl' && p.flying) spd *= 1.42;
+
   let ix = (keys['d']?1:0) - (keys['a']?1:0);
   let iy = (keys['s']?1:0) - (keys['w']?1:0);
   const arr = ((keys['ArrowRight']?1:0)-(keys['ArrowLeft']?1:0));
   const ary = ((keys['ArrowDown']?1:0)-(keys['ArrowUp']?1:0));
   if(!opts.noArrows){ ix += arr; iy += ary; }
+  // touch stick
+  if(touch.on && touch.mv.act){ ix += touch.mv.x; iy += touch.mv.y; }
   ix = clamp(ix,-1,1); iy = clamp(iy,-1,1);
   const mag = Math.hypot(ix,iy) || 1;
   p.running = keys['Shift'] && (ix||iy);
@@ -478,30 +569,133 @@ function updatePlayer(dt, opts){
   const ty = (iy/mag)*spd*runMul*hopMul;
   p.vx = lerp(p.vx, tx, 1-Math.pow(0.0009,dt));
   p.vy = lerp(p.vy, ty, 1-Math.pow(0.0009,dt));
-  tryMove(p, p.x + p.vx*dt, p.y + p.vy*dt);
+  if(p.char==='meowl' && p.flying){ p.x += p.vx*dt; p.y += p.vy*dt;   // vuela sobre obstáculos
+    p.x = clamp(p.x, 20, G.world.w-20); p.y = clamp(p.y, 20, G.world.h-20); }
+  else tryMove(p, p.x + p.vx*dt, p.y + p.vy*dt);
 
   if(ix||iy) p.face = Math.atan2(iy,ix);
   p.aim = ang(p.x - G.cam.x, p.y - G.cam.y, mouse.x, mouse.y);
+  if(touch.on && touch.aim.act) p.aim = Math.atan2(touch.aim.y, touch.aim.x);
   p.walkT += (Math.hypot(p.vx,p.vy)) * dt * 0.02;
 
-  // hop / dodge
   p.hopCd -= dt; p.hopT -= dt;
-  if(pressed(' ') && p.hopCd<=0){
-    p.hopT = 0.36; p.hopCd = 0.55; p.invT = Math.max(p.invT, 0.34); SFX.jump();
-    if(G.tut===2){ G.tutHopped=true; }
+  const jump = pressed(' ') || touch.jumpTap;
+
+  if(p.char==='meowl'){
+    // ESPACIO = toggle volar
+    if(jump){ p.flying = !p.flying; SFX.jump(); if(G.tut===2) G.tutHopped=true; }
+    if(p.flying){
+      p.flyStam -= dt*0.34;
+      if(p.flyStam<=0){ p.flyStam=0; p.flying=false; toast('Sin estámina para volar',1.3); }
+    } else {
+      p.flyStam = Math.min(1, p.flyStam + dt*0.5);
+    }
+    p.z = lerp(p.z, p.flying ? 26 : 0, 1-Math.pow(0.02,dt));
+  } else if(p.char==='baby'){
+    // no salta
+    p.z = lerp(p.z, 0, 0.3);
+    // barra de carne fresca (no drena en la sala de servidores / montaña rusa)
+    if(G.mode==='play' || G.mode==='chase' || G.mode==='boss'){
+      p.meat = Math.max(0, p.meat - dt*(p.meatEmpty?0:1.3));
+      p.meatEmpty = p.meat<=0;
+      if(p.meatEmpty){ p.dyingT += dt;
+        if(p.dyingT >= 3){ p.dyingT = 0; forceHurt(1); } }
+      else p.dyingT = 0;
+    }
+  } else {
+    // cat / agent: salto normal
+    if(jump && p.hopCd<=0){
+      p.hopT = 0.36; p.hopCd = 0.55; p.invT = Math.max(p.invT, 0.34); SFX.jump();
+      if(G.tut===2){ G.tutHopped=true; }
+    }
+    p.z = Math.sin(clamp(p.hopT/0.36,0,1)*Math.PI) * 18;
   }
-  p.z = Math.sin(clamp(p.hopT/0.36,0,1)*Math.PI) * 18;
+
   if(p.running && G.tut===1) G.tutRan = true;
   if((ix||iy) && G.tut===0) G.tutMoved = true;
 
   p.invT -= dt; p.swing -= dt; p.swingCd -= dt; p.fireCd -= dt;
+  if(p.disguiseT>0){ p.disguiseT -= dt; if(p.disguiseT<=0){ p.disguise=null; toast('Disfraz agotado',1.2); } }
 
-  // attack
   if(opts.canAttack !== false) doAttack(dt, opts.targets || G.monsters, opts.bossHit);
+  touch.jumpTap = false;
 }
+// daño que ignora escudo/iframes parcialmente (para "muerte por hambre")
+function forceHurt(n){
+  const r = G.run;
+  r.hp -= n; G.flash=0.5; G.shake=10; SFX.hurt();
+  if(r.hp<=0){ r.lives-=1;
+    if(r.lives<=0){ r.lives=0; r.hp=0; gameOver(); }
+    else { r.hp=r.hpMax; toast('¡Sin carne! Perdiste una vida. Quedan '+r.lives,2); } }
+}
+
+function attackPressed(){ return mouse.clicked || touch.aimTap; }
+function attackHeld(){ return mouse.down || (touch.aim.act); }
 
 function doAttack(dt, targets, bossHit){
   const p = G.player;
+
+  // ---- MEOWL: en tierra = disfraz · volando = zarpazo ----
+  if(p.char==='meowl'){
+    if(attackPressed()){
+      if(p.flying && p.swingCd<=0){
+        p.swing = 0.22; p.swingCd = 0.4; SFX.swing();
+        const reach = 46;
+        for(const m of targets){ if(m.dead) continue;
+          if(dist(p.x,p.y,m.x,m.y) < reach + (m.r||16)) damageTarget(m, 2, p.x, p.y, 300, bossHit); }
+        const b = G.boss;
+        if(b && b.isBoss && !b.dead && !b.hidden && bossHit && dist(p.x,p.y,b.x,b.y) < reach + b.r) bossHit(b, 2, p.x, p.y);
+      } else if(!p.flying){
+        if(p.disguiseT>0){ /* ya disfrazado */ }
+        else if(G.run.disguises>0){
+          G.run.disguises--; p.disguiseT = 6.5;
+          p.disguise = pick(['crawler','chomper','spitter','balloon','jester']);
+          SFX.transform(); G.shake=6; spark(p.x,p.y,'#8a8',12);
+          toast('Disfraz: '+p.disguise+' — los monstruos no te ven', 2);
+        } else { SFX.deny(); toast('Sin disfraces. Alimenta al Gusano.', 1.6); }
+      }
+    }
+    return;
+  }
+
+  // ---- AGENTE: pistola, 1 bala = 1 muerte ----
+  if(p.char==='agent'){
+    if(attackPressed() && p.fireCd<=0){
+      if(G.run.pistolAmmo>0){
+        G.run.pistolAmmo--; p.fireCd = 0.28; SFX.shoot(); G.shake=4;
+        const a = p.aim;
+        G.shots.push({ x:p.x+Math.cos(a)*20, y:p.y+Math.sin(a)*20,
+          vx:Math.cos(a)*900, vy:Math.sin(a)*900, r:6, life:1.1, dmg:99, friendly:true, oneShot:true });
+        spark(p.x+Math.cos(a)*22, p.y+Math.sin(a)*22, C.gold, 5);
+      } else { p.fireCd = 0.25; SFX.deny(); toast('Sin balas. Se recargan al pasar de nivel.', 1.6); }
+    }
+    return;
+  }
+
+  // ---- BEBÉ: sacar carne fresca ----
+  if(p.char==='baby'){
+    if(attackPressed() && p.swingCd<=0){
+      p.swing = 0.24; p.swingCd = 0.38; SFX.swing();
+      const reach = 58;
+      let got = false;
+      for(const m of targets){
+        if(m.dead) continue;
+        if(dist(p.x,p.y,m.x,m.y) < reach + (m.r||16)){
+          damageTarget(m, 2, p.x, p.y, 260, bossHit);
+          p.meat = Math.min(100, p.meat + 22); got = true;
+          spark(m.x,m.y,'#c0563f',8);
+        }
+      }
+      const b = G.boss;
+      if(b && b.isBoss && !b.dead && !b.hidden && bossHit && dist(p.x,p.y,b.x,b.y) < reach + b.r){
+        bossHit(b, 2, p.x, p.y); p.meat = Math.min(100, p.meat + 14); got = true;
+      }
+      if(got){ p.meatEmpty=false; SFX.feed(); }
+    }
+    return;
+  }
+
+  // ---- GATO: martillo / minigun ----
   const wpMel = G.run.hammer, wpGun = G.run.minigun;
   if(!wpMel && !wpGun){
     if(mouse.clicked){ SFX.deny(); toast('Necesitas un arma (tienda de Wonder).',1.8); }
@@ -597,13 +791,15 @@ function mkMonster(type, x, y){
 }
 function updateMonsters(dt){
   const p = G.player;
+  const hidden = (p.char==='meowl' && p.disguiseT>0);   // meowl disfrazado: invisible
   for(const m of G.monsters){
     if(m.dead) continue;
     m.t += dt; m.hitFlash -= dt; m.cd -= dt; m.telegraph -= dt;
     if(m.grabCd>0) m.grabCd -= dt;
     m.kx *= Math.pow(0.001,dt); m.ky *= Math.pow(0.001,dt);
-    const d = dist(m.x,m.y,p.x,p.y);
-    const toP = ang(m.x,m.y,p.x,p.y);
+    // si el jugador está disfrazado, el monstruo deambula (target lejano falso)
+    const d = hidden ? 9000 : dist(m.x,m.y,p.x,p.y);
+    const toP = hidden ? (m.t*0.6) : ang(m.x,m.y,p.x,p.y);
     let mvx=0, mvy=0;
 
     if(m.type==='crawler'){
@@ -749,12 +945,13 @@ function updateShots(dt){
       for(const m of G.monsters){
         if(m.dead) continue;
         if(dist(s.x,s.y,m.x,m.y) < m.r + s.r){
-          damageTarget(m, s.dmg, s.x - s.vx*0.02, s.y - s.vy*0.02, 160, s.bossHit);
+          if(s.oneShot){ m.hp = -999; damageTarget(m, 999, s.x - s.vx*0.02, s.y - s.vy*0.02, 380, null); burst(m.x,m.y,C.gold,10); }
+          else damageTarget(m, s.dmg, s.x - s.vx*0.02, s.y - s.vy*0.02, 160, s.bossHit);
           s.life = 0; break;
         }
       }
-      if(G.boss && G.boss.isBoss && !G.boss.dead && dist(s.x,s.y,G.boss.x,G.boss.y) < G.boss.r + s.r){
-        if(G.bossHit) G.bossHit(G.boss, s.dmg, s.x, s.y);
+      if(s.life>0 && G.boss && G.boss.isBoss && !G.boss.dead && dist(s.x,s.y,G.boss.x,G.boss.y) < G.boss.r + s.r){
+        if(G.bossHit) G.bossHit(G.boss, s.oneShot ? 3 : s.dmg, s.x, s.y);
         s.life = 0;
       }
     } else {
@@ -823,6 +1020,10 @@ function updateWorm(dt){
       burst(wm.x, wm.y+20, C.lumin, give*3);
       toast('+'+tk+' 🎟  ·  Gusano: '+Math.min(G.given,G.quota)+'/'+G.quota, 2.2);
       wm.mood = 1;
+      if(p.char==='meowl'){ const add = Math.floor(give/3);
+        if(add>0){ G.run.disguises = Math.min(5, G.run.disguises + add); toast('+'+add+' disfraz(es)',1.6); } }
+      if(p.char==='baby'){ p.meat = Math.min(100, p.meat + give*7); p.meatEmpty=false;
+        toast('El Gusano te devuelve carne fresca',1.6); }
       if(G.tut===4){ G.tut = 5; tutMsg(); }
       if(G.given >= G.quota) startPuzzle();
     } else if(G.carrying===0 && pressed('e')){
@@ -1236,10 +1437,12 @@ function updateServers(dt){
   // pit hazard (only if grounded)
   let overPit = null;
   for(const pit of sg.pits){ if(p.x > pit.x - 4 && p.x < pit.x + pit.w + 4) overPit = pit; }
-  if(overPit && p.z < 6 && p.hopT <= 0 && p.invT <= 0){
+  const airborne = p.z >= 6 || p.hopT > 0 || (p.char==='meowl' && p.flying)
+    || (p.char==='baby' && Math.hypot(p.vx,p.vy) > 210);   // el bebé cruza a la carrera
+  if(overPit && !airborne && p.invT <= 0){
     hurtPlayer(1, p.x, p.y+40);
     p.x = overPit.x - 54; p.vx = 0; p.vy = 0;
-    toast('¡Al vacío! Toma carrera y salta con ESPACIO.', 1.8);
+    toast(p.char==='baby' ? '¡Al vacío! Cruza a toda velocidad.' : '¡Al vacío! Toma carrera y salta con ESPACIO.', 1.8);
   }
 
   // button
@@ -1754,6 +1957,10 @@ function startLevel(idx){
   musicMood = L.mood==='day' ? 'day' : 'night';
   G.events = { next: rand(12,18), flicker:0 };
 
+  // agente: recarga balas al pasar de nivel (arranca con 1, +3 por nivel, máx 10)
+  if(G.run.char==='agent' && idx>0)
+    G.run.pistolAmmo = Math.min(G.run.pistolMax, G.run.pistolAmmo + 3);
+
   if(L.kind === 'boss'){ startBoss(L); return; }
   if(L.kind === 'servers'){ startServers(L); return; }
 
@@ -1766,9 +1973,19 @@ function startLevel(idx){
   G.graceT = L.tut ? 6 : 2.5;
   buildCollectWorld(L);
 
-  if(L.tut){ G.tut = 0; G.tutTimer=0; G.tutMoved=G.tutRan=G.tutHopped=false; tutMsg(); }
-  else { G.tut = 99;
-    if(L.blackout) toast('APAGÓN. Carga las '+(L.machines||4)+' máquinas con Lumins para volver la luz.', 4);
+  if(L.tut && G.run.char==='cat'){
+    G.tut = 0; G.tutTimer=0; G.tutMoved=G.tutRan=G.tutHopped=false; tutMsg();
+  } else {
+    G.tut = 99;
+    if(L.tut){
+      const hints = {
+        meowl:'Eres Meowl. ESPACIO = volar (gasta estámina). CLICK en el suelo = disfraz de monstruo. Recoge Lumins con E y aliméntalos al Gusano.',
+        agent:'Eres el Agente. CLICK = pistola (1 bala mata a 1 monstruo). Empiezas con 1 bala, ganas 3 por nivel. Recoge Lumins con E para el Gusano.',
+        baby:'Eres Persuer Bebé. Rapidísimo pero frágil. CLICK saca carne de los monstruos. Si tu barra se vacía, mueres — pero alimentar al Gusano con Lumins (E) también te devuelve carne.'
+      };
+      toast(hints[G.run.char] || 'Recoge Lumins con E y aliméntalos al Gusano.', 5.5);
+    }
+    else if(L.blackout) toast('APAGÓN. Carga las '+(L.machines||4)+' máquinas con Lumins para volver la luz.', 4);
     else toast('Nivel '+L.n+'  ·  '+G.quota+' Lumins para el Gusano  ·  '+LEVEL_TIME+'s', 3.2);
   }
 }
@@ -1801,12 +2018,18 @@ function levelClear(fromChase, fromBoss){
 
 /* ============================ SHOP UI ============================ */
 const SHOP_ITEMS = [
-  { key:'minigun', ic:'🔫', name:'Minigun de juguete', desc:'Dispara a distancia. Consume munición.', cost:34, hidden:r=>r.minigun },
+  { key:'minigun', ic:'🔫', name:'Minigun de juguete', desc:'Dispara a distancia. Consume munición.', cost:34, hidden:r=>r.char!=='cat' || r.minigun },
   { key:'ammo', ic:'📦', name:'Munición ×40', desc:'Recarga para el minigun.', cost:12, need:r=>r.minigun,
-    needMsg:'Necesitas el minigun primero.' },
+    needMsg:'Necesitas el minigun primero.', hidden:r=>r.char!=='cat' },
+  { key:'bullets', ic:'🔩', name:'Balas ×3', desc:'3 balas para la pistola (mata de un tiro).', cost:14,
+    hidden:r=>r.char!=='agent' || r.pistolAmmo>=r.pistolMax },
+  { key:'disguise', ic:'🎭', name:'Disfraz extra', desc:'+1 disfraz de monstruo.', cost:10,
+    hidden:r=>r.char!=='meowl' },
+  { key:'meat', ic:'🥩', name:'Carne enlatada', desc:'Rellena tu barra de carne fresca.', cost:8,
+    hidden:r=>r.char!=='baby' },
   { key:'heal', ic:'🩹', name:'Vendar el corazón', desc:'Rellena la barra del corazón actual.', cost:8,
     hidden:r=>r.hp>=r.hpMax },
-  { key:'life', ic:'🐾', name:'Otra vida', desc:'+1 corazón (máx 4).', cost:18, hidden:r=>r.lives>=r.maxLives },
+  { key:'life', ic:'🐾', name:'Otra vida', desc:'+1 corazón.', cost:18, hidden:r=>r.lives>=r.maxLives },
   { key:'shield', ic:'🛡️', name:'Amuleto roto', desc:'Absorbe el próximo golpe.', cost:15, hidden:r=>r.shield },
   { key:'time', ic:'⏱️', name:'+20 s de reloj', desc:'Más tiempo en el próximo nivel.', cost:9 },
   { key:'boots', ic:'👟', name:'Patas rápidas', desc:'+14% velocidad, permanente.', cost:20, hidden:r=>r.boots },
@@ -1835,6 +2058,9 @@ function buyItem(it){
   r.tickets -= it.cost;
   if(it.key==='minigun'){ r.minigun = true; r.ammo += 24; }
   else if(it.key==='ammo') r.ammo += 40;
+  else if(it.key==='bullets') r.pistolAmmo = Math.min(r.pistolMax, r.pistolAmmo + 3);
+  else if(it.key==='disguise') r.disguises = Math.min(5, r.disguises + 1);
+  else if(it.key==='meat'){ if(G.player) { G.player.meat = 100; G.player.meatEmpty = false; } }
   else if(it.key==='heal') r.hp = r.hpMax;
   else if(it.key==='life'){ r.lives = Math.min(r.maxLives, r.lives+1); }
   else if(it.key==='shield') r.shield = true;
@@ -1865,10 +2091,12 @@ function startIntro(){
       { bg:'#140f22', draw:(a,t)=>{ welcomeScene(a,t,true); },
         line:'"Solo alimenta al Gusano. Nivel tras nivel."', sub:'Wonder: "Hazlo a tiempo y podrás jugar para siempre. Falla... y jugaré yo contigo."' },
       { bg:'#100c1a', draw:(a,t)=>{ handHammerScene(a,t); },
-        line:'Wonder te deja un martillo de juguete a los pies.', sub:'"Por si algún otro invitado se pone... insistente."' },
+        line: (G.run.char==='cat'
+          ? 'Wonder te deja un martillo de juguete a los pies.'
+          : 'Wonder inclina la cabeza. "Vaya... tú no eres como los otros invitados."'),
+        sub:'"Da igual. El Gusano tiene hambre igual."' },
     ]
   };
-  G.run.hammer = true;
 }
 function startEnding(){
   hidePanels();
@@ -2524,15 +2752,32 @@ function drawStarCreature(x,y,r,t,hitFlash){
 }
 function drawPlayer(){
   const p = G.player;
+  const ch = p.char || 'cat';
   ctx.save(); ctx.translate(p.x, p.y);
-  const z = Math.sin(clamp(p.hopT/0.36,0,1)*Math.PI) * 18;
-  // ground shadow
+  const z = p.z || 0;
   ctx.fillStyle='rgba(0,0,0,0.36)';
-  ctx.beginPath(); ctx.ellipse(0, 22, 17 - z*0.4, 6 - z*0.16, 0,0,7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(0, 22, (17 - z*0.35)*(z>10?0.8:1), 6 - z*0.16, 0,0,7); ctx.fill();
   ctx.translate(0, -z);
   ctx.scale(1.34, 1.34);
   const blink = p.invT>0 && Math.floor(G.t*22)%2===0;
   ctx.globalAlpha = blink ? 0.4 : 1;
+
+  // meowl disfrazado: se ve como una sombra de monstruo
+  if(ch==='meowl' && p.disguiseT>0){
+    const col = (MON_DEF[p.disguise]||{}).color || '#555';
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.ellipse(0,2,15,16,0,0,7); ctx.fill();
+    ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.arc(-4,-2,2,0,7); ctx.arc(4,-2,2,0,7); ctx.fill();
+    ctx.strokeStyle='rgba(180,200,255,'+(0.35+0.25*Math.sin(G.t*8))+')'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.ellipse(0,2,16,17,0,0,7); ctx.stroke();
+    ctx.restore(); return;
+  }
+
+  if(ch==='baby'){ drawBaby(p); ctx.restore(); return; }
+  if(ch==='meowl'){ drawMeowl(p); ctx.restore(); return; }
+  if(ch==='agent'){ drawAgent(p); ctx.restore(); return; }
+
+  // ---- GATO BLANCO ----
   const moving = Math.hypot(p.vx,p.vy) > 30;
   const step = moving ? Math.sin(p.walkT*2)*2 : 0;
   const white = '#eeece4', shade = '#c9c6bb', pink = '#c98891', dark='#0f0d16';
@@ -2618,6 +2863,132 @@ function drawPlayer(){
     ctx.restore();
   }
   ctx.restore();
+}
+/* --- Meowl: gato búho --- */
+function drawMeowl(p){
+  const brown='#3a2c22', tan='#8a6a48', cream='#d8c4a0', dark='#0f0d16';
+  const fly = p.flying;
+  const step = (Math.hypot(p.vx,p.vy)>30 && !fly) ? Math.sin(p.walkT*2)*2 : 0;
+  const wf = Math.sin(G.t*(fly?18:4));
+  // alas
+  ctx.fillStyle = brown;
+  for(const s of [-1,1]){
+    ctx.save(); ctx.scale(s,1);
+    ctx.beginPath(); ctx.moveTo(9,-4);
+    ctx.quadraticCurveTo(24, -14 + (fly? wf*8 : -2), 30, 6 + (fly? wf*6:8));
+    ctx.quadraticCurveTo(20, 6, 10, 8); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = tan;
+    ctx.beginPath(); ctx.moveTo(12,0); ctx.quadraticCurveTo(20,-2,26,6); ctx.quadraticCurveTo(18,6,12,7); ctx.fill();
+    ctx.fillStyle = brown;
+    ctx.restore();
+  }
+  if(!fly){
+    ctx.fillStyle='#c9c6bb'; ctx.lineCap='round';
+    ctx.beginPath(); ctx.ellipse(-7,16-step,5,4,0,0,7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(7,16+step,5,4,0,0,7); ctx.fill();
+  }
+  // cuerpo + cabeza
+  ctx.fillStyle = brown;
+  ctx.beginPath(); ctx.ellipse(0,3,13,15,0,0,7); ctx.fill();
+  ctx.beginPath(); ctx.arc(0,-13,13,0,7); ctx.fill();
+  // pecho moteado
+  ctx.fillStyle = tan;
+  ctx.beginPath(); ctx.ellipse(0,6,7,9,0,0,7); ctx.fill();
+  // orejas puntudas (tipo búho)
+  ctx.fillStyle = brown;
+  ctx.beginPath(); ctx.moveTo(-12,-20); ctx.lineTo(-15,-34); ctx.lineTo(-4,-22); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(12,-20); ctx.lineTo(15,-34); ctx.lineTo(4,-22); ctx.fill();
+  // ojos GRANDES naranjas
+  const fx = Math.cos(p.aim)*2, fy = Math.sin(p.aim)*1.3;
+  ctx.fillStyle = cream;
+  ctx.beginPath(); ctx.arc(-5+fx,-13+fy,5,0,7); ctx.arc(5+fx,-13+fy,5,0,7); ctx.fill();
+  ctx.fillStyle = '#e8871f';
+  ctx.beginPath(); ctx.arc(-5+fx,-13+fy,3.4,0,7); ctx.arc(5+fx,-13+fy,3.4,0,7); ctx.fill();
+  ctx.fillStyle = dark;
+  ctx.beginPath(); ctx.arc(-5+fx,-13+fy,1.6,0,7); ctx.arc(5+fx,-13+fy,1.6,0,7); ctx.fill();
+  // pico
+  ctx.fillStyle='#c98a3a'; ctx.beginPath(); ctx.moveTo(fx-2,-7+fy); ctx.lineTo(fx+2,-7+fy); ctx.lineTo(fx,-3+fy); ctx.fill();
+  // cola
+  ctx.strokeStyle=brown; ctx.lineWidth=6; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(-10,10); ctx.quadraticCurveTo(-20,14,-18,2); ctx.stroke();
+}
+/* --- Agente secreto (gato en traje) --- */
+function drawAgent(p){
+  const fur='#15130f', furL='#2a2620', suit='#12121a', shirt='#c9c6bb', dark='#0f0d16';
+  const step = Math.hypot(p.vx,p.vy)>30 ? Math.sin(p.walkT*2)*2 : 0;
+  const fx = Math.cos(p.aim)*2, fy = Math.sin(p.aim)*1.3;
+  // cola
+  ctx.strokeStyle=fur; ctx.lineWidth=6; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(-11,9); ctx.quadraticCurveTo(-23,11,-21,-3); ctx.quadraticCurveTo(-20,-13,-13,-11); ctx.stroke();
+  // piernas / zapatos
+  ctx.fillStyle=suit;
+  ctx.fillRect(-9,10,7,10-step*0); ctx.fillRect(2,10,7,10);
+  ctx.fillStyle='#0a0a0a';
+  ctx.beginPath(); ctx.ellipse(-6,20-step,5,3,0,0,7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(6,20+step,5,3,0,0,7); ctx.fill();
+  // torso traje
+  ctx.fillStyle=suit;
+  ctx.beginPath(); ctx.moveTo(-12,-6); ctx.lineTo(12,-6); ctx.lineTo(10,13); ctx.lineTo(-10,13); ctx.fill();
+  // camisa V + corbata
+  ctx.fillStyle=shirt;
+  ctx.beginPath(); ctx.moveTo(-5,-6); ctx.lineTo(0,4); ctx.lineTo(5,-6); ctx.fill();
+  ctx.fillStyle='#6a1520';
+  ctx.beginPath(); ctx.moveTo(-2,-5); ctx.lineTo(2,-5); ctx.lineTo(3,6); ctx.lineTo(0,9); ctx.lineTo(-3,6); ctx.fill();
+  // cabeza gato negro
+  ctx.fillStyle=fur; ctx.beginPath(); ctx.arc(0,-15,12,0,7); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(-11,-22); ctx.lineTo(-15,-34); ctx.lineTo(-3,-24); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(11,-22); ctx.lineTo(15,-34); ctx.lineTo(3,-24); ctx.fill();
+  // mechones
+  ctx.strokeStyle=fur; ctx.lineWidth=3; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(-10,-11); ctx.lineTo(-17,-9); ctx.moveTo(10,-11); ctx.lineTo(17,-9); ctx.stroke();
+  // ojos naranjas en media luna
+  ctx.strokeStyle='#e8871f'; ctx.lineWidth=3; ctx.lineCap='round';
+  ctx.beginPath(); ctx.arc(-5+fx,-16+fy,3.2, 0.2, Math.PI-0.2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(5+fx,-16+fy,3.2, 0.2, Math.PI-0.2); ctx.stroke();
+  // pistola
+  const rec = p.fireCd>0.18 ? (p.fireCd-0.18)*10 : 0;
+  ctx.save(); ctx.rotate(p.aim); ctx.translate(-rec*3,0);
+  ctx.fillStyle='#2a2a30'; ctx.fillRect(7,-3,17,6);
+  ctx.fillStyle='#3e3e46'; ctx.fillRect(22,-2.5,5,5);
+  ctx.fillStyle='#1a1a1e'; ctx.fillRect(9,2,5,7);
+  if(rec>0.05){ ctx.fillStyle='#ffcf6a'; ctx.beginPath(); ctx.arc(28,0,3+rec*2,0,7); ctx.fill(); }
+  ctx.restore();
+}
+/* --- Persuer bebé (bola negra) --- */
+function drawBaby(p){
+  const body = p.meatEmpty ? '#241014' : '#161219';
+  const dying = p.meatEmpty && Math.floor(G.t*10)%2;
+  const step = Math.hypot(p.vx,p.vy)>30 ? Math.sin(p.walkT*3)*1.5 : 0;
+  // manchas de arrastre si va rápido
+  if(Math.hypot(p.vx,p.vy)>240){ ctx.fillStyle='rgba(20,16,24,0.3)';
+    ctx.beginPath(); ctx.ellipse(-p.vx*0.03,-p.vy*0.03,13,13,0,0,7); ctx.fill(); }
+  // cuerpo redondo
+  ctx.fillStyle = dying ? '#5a1a22' : body;
+  ctx.beginPath(); ctx.ellipse(0,4,15,14,0,0,7); ctx.fill();
+  // bracitos
+  ctx.strokeStyle = body; ctx.lineWidth=4; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(-11,4); ctx.lineTo(-17,8+step); ctx.stroke();
+  const sw = p.swing>0 ? (1-p.swing/0.24) : 0;
+  ctx.beginPath(); ctx.moveTo(11,4); ctx.lineTo(17 + sw*4, 2 - sw*6); ctx.stroke();
+  // cabeza pálida grande
+  ctx.fillStyle = '#e8e6dc';
+  ctx.beginPath(); ctx.arc(0,-9,11,0,7); ctx.fill();
+  // ojazos negros con punto verde
+  const fx = Math.cos(p.aim)*2, fy = Math.sin(p.aim)*1.2;
+  ctx.fillStyle = '#0c0c10';
+  ctx.beginPath(); ctx.arc(-4+fx,-9+fy,4.4,0,7); ctx.arc(4+fx,-9+fy,4.4,0,7); ctx.fill();
+  ctx.fillStyle = '#7fe0a0';
+  ctx.beginPath(); ctx.arc(-4+fx,-9+fy,1.6,0,7); ctx.arc(4+fx,-9+fy,1.6,0,7); ctx.fill();
+  // boquita
+  ctx.strokeStyle='#0c0c10'; ctx.lineWidth=1.3;
+  ctx.beginPath();
+  if(p.meatEmpty){ ctx.arc(fx*0.5,-2,2.5,0,Math.PI); }
+  else { ctx.moveTo(fx-2,-3); ctx.lineTo(fx+2,-3); }
+  ctx.stroke();
+  // cuchillo de carne cuando ataca
+  if(p.swing>0){ ctx.save(); ctx.rotate(p.aim + lerp(-1,1,sw));
+    ctx.fillStyle='#c9c6bb'; ctx.beginPath(); ctx.moveTo(6,-2); ctx.lineTo(22,0); ctx.lineTo(6,2); ctx.fill();
+    ctx.restore(); }
 }
 
 /* ============================ DRAW: WORLD ============================ */
@@ -2800,8 +3171,33 @@ function drawHUD(){
   ctx.fillStyle=C.gold; ctx.font="700 16px Bungee, sans-serif";
   ctx.fillText('🎟 '+r.tickets, VW-20, 28);
   ctx.font="600 13px Fredoka, sans-serif"; ctx.fillStyle=C.cream;
-  let wt = r.minigun ? ('🔫 '+r.ammo) : '🔨 martillo';
+  let wt;
+  if(r.char==='agent') wt = '🔫 '+r.pistolAmmo+' / '+r.pistolMax;
+  else if(r.char==='meowl') wt = '🎭 '+r.disguises+' disfraz'+(r.disguises===1?'':'es');
+  else if(r.char==='baby') wt = '🔪 carnicero';
+  else wt = r.minigun ? ('🔫 '+r.ammo) : '🔨 martillo';
   ctx.fillText(wt, VW-20, 48);
+
+  // barras del personaje (bajo el arma)
+  const p = G.player;
+  if(p){
+    if(p.char==='meowl'){
+      ctx.textAlign='right'; ctx.font="600 10px Fredoka"; ctx.fillStyle='#8a8098';
+      ctx.fillText(p.flying?'VOLANDO':'estámina', VW-20, 62);
+      ctx.fillStyle='rgba(255,255,255,0.12)'; roundRect(VW-120,66,100,7,3); ctx.fill();
+      ctx.fillStyle = p.flyStam<0.25 ? C.blood : '#7fd0e8';
+      roundRect(VW-120,66,100*clamp(p.flyStam,0,1),7,3); ctx.fill();
+      if(p.disguiseT>0){ ctx.fillStyle=C.gold; ctx.textAlign='right'; ctx.font="700 11px Bungee";
+        ctx.fillText('DISFRAZ '+Math.ceil(p.disguiseT)+'s', VW-20, 88); }
+    } else if(p.char==='baby'){
+      ctx.textAlign='right'; ctx.font="600 10px Fredoka";
+      ctx.fillStyle = p.meatEmpty ? C.blood : '#a06048';
+      ctx.fillText(p.meatEmpty?'¡SIN CARNE!':'carne fresca', VW-20, 62);
+      ctx.fillStyle='rgba(255,255,255,0.12)'; roundRect(VW-120,66,100,7,3); ctx.fill();
+      ctx.fillStyle = p.meat<25 ? C.blood : '#c0563f';
+      roundRect(VW-120,66,100*clamp(p.meat/100,0,1),7,3); ctx.fill();
+    }
+  }
 
   // boss health bar (arena bosses)
   if(G.mode==='boss' && G.boss && G.boss.isBoss && !G.boss.dead && !(LEVELS[G.level]&&LEVELS[G.level].boss==='coaster')){
@@ -3304,7 +3700,7 @@ function drawPuzzle(){
 }
 
 /* ============================ PANEL HELPERS ============================ */
-const panels = ['ovTitle','ovShop','ovPause','ovOver'];
+const panels = ['ovTitle','ovShop','ovPause','ovOver','ovChar'];
 function showPanel(id){ for(const p of panels){ const el=document.getElementById(p);
   el.hidden = (p!==id); el.style.display = (p===id) ? '' : 'none'; } }
 function hidePanels(){ for(const p of panels){ const el=document.getElementById(p);
@@ -3400,9 +3796,56 @@ function updatePlay(dt){
   }
 }
 
+/* ============================ CHARACTER SELECT ============================ */
+let selChar = null, selPlayers = 1;
+function renderCharSelect(){
+  const grid = document.getElementById('charGrid');
+  grid.innerHTML = '';
+  for(const id of ['cat','meowl','agent','baby']){
+    const c = CHARACTERS[id];
+    const el = document.createElement('div');
+    el.className = 'cchar' + (selChar===id ? ' sel' : '');
+    el.innerHTML = '<div class="em">'+c.motif+'</div><div class="ct">'+
+      '<div class="nm">'+c.name+'</div><div class="tp">'+c.type+'</div>'+
+      '<div class="ds">'+c.desc+'</div></div>';
+    el.addEventListener('click', ()=>{ selChar = id; renderCharSelect();
+      document.getElementById('charHint').textContent =
+        'Elegido: '+c.name+' ('+c.type+'). '+ (selPlayers===2 ? 'El otro jugador no puede repetir personaje.' : '');
+      document.getElementById('btnCharGo').disabled = false;
+      document.getElementById('btnCharSkip').disabled = false;
+    });
+    grid.appendChild(el);
+  }
+}
+function openCharSelect(){
+  audioInit(); selChar = null;
+  document.getElementById('btnCharGo').disabled = true;
+  document.getElementById('btnCharSkip').disabled = true;
+  document.getElementById('charHint').textContent = 'Toca un personaje para verlo.';
+  renderCharSelect();
+  hidePanels(); showPanel('ovChar');
+}
+function beginRun(withIntro){
+  if(!selChar) return;
+  applyChar(selChar);
+  hidePanels();
+  if(withIntro) startIntro(); else startLevel(0);
+}
+
 /* ============================ BUTTON WIRING ============================ */
-document.getElementById('btnStart').addEventListener('click', ()=>{ audioInit(); hidePanels(); startIntro(); });
-document.getElementById('btnSkip').addEventListener('click', ()=>{ audioInit(); hidePanels(); G.run.hammer=true; startLevel(0); });
+document.getElementById('btnNew').addEventListener('click', openCharSelect);
+document.getElementById('btnCharBack').addEventListener('click', ()=>{ hidePanels(); showPanel('ovTitle'); });
+document.getElementById('btnCharGo').addEventListener('click', ()=>beginRun(true));
+document.getElementById('btnCharSkip').addEventListener('click', ()=>beginRun(false));
+document.querySelectorAll('#ovChar .pc').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    const n = +b.dataset.n;
+    if(n===2){ toast && 0; document.getElementById('charHint').textContent =
+      '2 jugadores (pantalla dividida) — próximamente. Por ahora, 1 jugador.'; return; }
+    selPlayers = n;
+    document.querySelectorAll('#ovChar .pc').forEach(x=>x.classList.toggle('sel', +x.dataset.n===n));
+  });
+});
 _cutSkipBtn.addEventListener('click', ()=>{
   if(G.mode==='cut' && G.cut){ const d = G.cut.done; G.cut = null; _cutSkipBtn.hidden = true; if(d) d(); }
 });
