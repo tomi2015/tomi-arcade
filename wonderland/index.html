@@ -223,7 +223,7 @@ window.addEventListener('keydown', e=>{
   if(!keys[k]) once[k] = true;
   keys[k] = true;
   if([' ','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) e.preventDefault();
-  if((k==='/'||k==="'") && G.numPlayers===2) e.preventDefault();   // "/" = salto P2 (evita búsqueda rápida)
+  if((k==='/'||k==="'") && G.numPlayers===2) e.preventDefault();   // por si acaso
   if(k==='p'||k==='Escape') togglePause();
 });
 window.addEventListener('keyup', e=>{
@@ -432,6 +432,7 @@ function newRun(){
     worm:null, shop:null, coaster:null, machines:null,
     blackout:false, litFrac:0,
     chase:null, serverGame:null, mash:null,
+    puzzlePods:null, exitOpen:false, exitHintT:0,
     timer:0, timerOn:false, graceT:0, phase:'collect',
     quota:0, given:0, carrying:0, carryCap:12,
     tut:0, tutTimer:0, tutMoved:false, tutRan:false, tutHopped:false,
@@ -578,11 +579,18 @@ function buildCollectWorld(L){
   // scattered decor obstacles
   const zones=[]; // keep-clear
   const wormPos = { x:w.w*0.5, y:360 };
-  const shopPos = { x:340, y:w.h-360 };
+  const shopPos = { x:w.w*0.5 + 330, y:520 };   // la tienda de Wonder, junto al Gusano
   const coasterPos = { x:w.w-300, y:w.h-300 };
   const spawn = { x:w.w*0.5, y:w.h*0.52 };
-  zones.push({x:wormPos.x,y:wormPos.y,r:280},{x:shopPos.x,y:shopPos.y,r:220},
+  zones.push({x:wormPos.x,y:wormPos.y,r:300},{x:shopPos.x,y:shopPos.y,r:180},
     {x:coasterPos.x,y:coasterPos.y,r:240},{x:spawn.x,y:spawn.y,r:260});
+  // pods de puzzle repartidos por el mapa (opcionales -> Super Lumin)
+  const podPos = [
+    { x:w.w*0.16, y:w.h*0.20 }, { x:w.w*0.84, y:w.h*0.24 },
+    { x:w.w*0.20, y:w.h*0.82 },
+  ];
+  const nPods = L.tut ? 1 : (2 + (Math.random()<0.5?1:0));
+  for(const pp of podPos.slice(0, nPods)) zones.push({ x:pp.x, y:pp.y, r:140 });
   const kinds=['tent','ballpit','planter','crate','sign'];
   let tries=0;
   while(w.obs.length < 18 && tries<400){
@@ -607,6 +615,17 @@ function buildCollectWorld(L){
   G.cam = camForPlayer(G.player); G.cam2 = P2on() ? camForPlayer(G.p2) : {x:G.cam.x,y:G.cam.y};
   G.shop = { x:shopPos.x, y:shopPos.y, r:90 };
   G.coaster = { x:coasterPos.x, y:coasterPos.y, r:120 };
+  G.exitOpen = false; G.exitHintT = 0;
+
+  // pods de puzzle: resuélvelos para soltar un SUPER Lumin (x10). No obligatorios.
+  G.puzzlePods = [];
+  if(!L.blackout){
+    for(const pp of podPos.slice(0, nPods)){
+      let x = clamp(pp.x, w.pad+80, w.w-w.pad-80), y = clamp(pp.y, w.pad+80, w.h-w.pad-80);
+      let g=0; while(solidCircle(x,y,30) && g<30){ x=clamp(pp.x+rand(-120,120),w.pad+80,w.w-w.pad-80); y=clamp(pp.y+rand(-120,120),w.pad+80,w.h-w.pad-80); g++; }
+      G.puzzlePods.push({ x, y, done:false, t:rand(0,6) });
+    }
+  }
 
   if(L.blackout){
     // power stations instead of a worm
@@ -636,7 +655,9 @@ function buildCollectWorld(L){
     if(solidCircle(x,y,26)) continue;
     if(dist(x,y,spawn.x,spawn.y) < 240) continue;
     if(G.worm && dist(x,y,wormPos.x,wormPos.y) < 200) continue;
+    if(dist(x,y,shopPos.x,shopPos.y) < 130) continue;
     if(G.machines && G.machines.some(m=>dist(x,y,m.x,m.y)<120)) continue;
+    if(G.puzzlePods && G.puzzlePods.some(pd=>dist(x,y,pd.x,pd.y)<110)) continue;
     let near=false; for(const l of G.lumins) if(dist(x,y,l.x,l.y)<150){near=true;break;}
     if(near) continue;
     G.lumins.push({ x, y, phase:rand(0,7), hop:0, taken:false, scared:0 });
@@ -670,7 +691,7 @@ function mkPlayer(x,y,slot){
     walkT:0, running:false, down:false, respawnT:0,
     char: (r && r.char) || 'cat',
     flying:false, flyStam:1, disguiseT:0, disguise:null,
-    meat:80, meatEmpty:false, dyingT:0 };
+    meat:80, meatEmpty:false, dyingT:0, steakCd:0 };
 }
 function spawnPlayers(x, y){
   G.player = mkPlayer(x - (P2on()?26:0), y, 1);
@@ -709,14 +730,17 @@ function playerInput(p){
     I.jump = pressed(' ');
     I.atk = pressed('f') || mouse.clicked; I.atkHeld = !!keys['f'] || mouse.down;
   } else {
+    // JUGADOR 2: flechas mover · 0 saltar (bebé: dar bistec) · 5 atacar · 1 interactuar
     I.ix = (keys['ArrowRight']?1:0)-(keys['ArrowLeft']?1:0);
     I.iy = (keys['ArrowDown']?1:0)-(keys['ArrowUp']?1:0);
     I.run = !!keys['Shift'];
-    I.jump = pressed('/');
-    I.atk = pressed('.'); I.atkHeld = !!keys['.'];
+    I.jump = pressed('0');
+    I.atk = pressed('5'); I.atkHeld = !!keys['5'];
   }
   return I;
 }
+// tecla de "interactuar" de cada jugador
+function interactKey(p){ return (p===G.p2) ? '1' : 'e'; }
 // mira: apunta hacia el movimiento, con imán al monstruo más cercano de frente
 function autoAim(p){
   let best=null, bd=280;
@@ -776,8 +800,21 @@ function updateOnePlayer(p, dt, opts){
     }
     p.z = lerp(p.z, p.flying ? 26 : 0, 1-Math.pow(0.02,dt));
   } else if(p.char==='baby'){
-    // no salta
+    // no salta — la tecla de salto (0) sirve para DAR BISTEC a un compañero cercano
     p.z = lerp(p.z, 0, 0.3);
+    p.steakCd = (p.steakCd||0) - dt;
+    if(jump && p.steakCd<=0 && p.meat > 25){
+      const mate = allPlayers().find(q => q && q!==p && !q.down && dist(p.x,p.y,q.x,q.y) < 46);
+      if(mate){
+        const mr = runOf(mate);
+        p.meat -= 20; p.steakCd = 1.2;
+        SFX.feed(); spark(mate.x, mate.y, '#c0563f', 12);
+        if(mate.char==='baby'){ mate.meat = Math.min(100, mate.meat + 26); mate.meatEmpty = false;
+          toast(pLabel(p)+'le pasa carne a '+pLabel(mate).trim(), 1.4); }
+        else if(mr.hp < mr.hpMax){ mr.hp++; toast(pLabel(p)+'cura a '+pLabel(mate).trim()+' con un bistec', 1.4); }
+        else { p.meat += 12; p.steakCd = 0.3; }   // no hacía falta, devuelve algo
+      }
+    }
     // barra de carne fresca (no drena en la sala de servidores / montaña rusa)
     if(G.mode==='play' || G.mode==='chase' || G.mode==='boss'){
       p.meat = Math.max(0, p.meat - dt*(p.meatEmpty?0:1.3));
@@ -1067,7 +1104,7 @@ function mkMonster(type, x, y){
   const m = { type, x, y, r:d.r, hp:d.hp, maxhp:d.hp, spd:d.spd, color:d.color,
     vx:0, vy:0, t:rand(0,6), state:'idle', cd:rand(1,3), hitFlash:0, dead:false,
     kx:0, ky:0, ghost:!!d.ghost, contact:d.contact, telegraph:0, phase:rand(0,6) };
-  if(type==='jackbox'){ m.state='box'; m.cd=0; m.rest=0; m.scaryT=0; m.bob=0; }
+  if(type==='jackbox'){ m.state='box'; m.cd=0; m.rest=0; m.scaryT=0; m.bob=0; m.hopPhase=rand(0,6); }
   if(type==='buttongirl'){ m.cd = rand(3,5); m.stun=0; m.lx=0; m.ly=0; m.dashT=0; }
   if(type==='unicycle'){ m.wob = rand(0,6); m.grabCd=0; m.stun=0; }
   return m;
@@ -1147,11 +1184,20 @@ function updateMonsters(dt){
       }
     }
     else if(m.type==='jackbox'){
-      // sits as a cute box; springs into the nightmare form on approach/touch
+      // caja de sorpresa que SALTA hacia ti dando botes; se transforma al acercarse
       if(m.rest>0) m.rest -= dt;
       if(m.state==='box'){
-        m.bob = Math.sin(m.t*3)*3;
-        if(m.rest<=0 && d < 92){
+        m.hopPhase = (m.hopPhase||0) + dt*3.6;
+        const hopUp = Math.max(0, Math.sin(m.hopPhase));
+        m.bob = -hopUp*11;                              // bote visual
+        // avanza a saltitos hacia el jugador visible (si no hay, deambula)
+        const boxSpd = hidden ? 40 : 104;
+        if(hopUp > 0.2){
+          const wob = Math.sin(m.t*1.3)*0.5;
+          mvx = Math.cos(toP + wob)*boxSpd;
+          mvy = Math.sin(toP + wob)*boxSpd;
+        }
+        if(m.rest<=0 && d < 96){
           m.state='wind'; m.telegraph = 0.45; SFX.transform(); m.color = '#3a2f22';
         }
       } else if(m.state==='wind'){
@@ -1293,8 +1339,7 @@ function updateParts(dt){
 function interactorNear(x, y, rad){
   for(const p of livePlayers()){
     if(dist(x,y,p.x,p.y) < rad){
-      const k = (p===G.p2) ? ',' : 'e';
-      if(pressed(k)) return p;
+      if(pressed(interactKey(p))) return p;
     }
   }
   return null;
@@ -1302,21 +1347,34 @@ function interactorNear(x, y, rad){
 function updateLumins(dt){
   for(const l of G.lumins){
     if(l.taken) continue;
-    l.phase += dt*3; l.hop = Math.abs(Math.sin(l.phase))*4;
+    const spd = l.super ? 3.4 : 3;
+    l.phase += dt*spd; l.hop = Math.abs(Math.sin(l.phase))*(l.super?6:4);
     l.scared -= dt;
     const near = nearestPlayer(l.x,l.y);
     const d = dist(l.x,l.y,near.x,near.y);
-    if(G.horror && d<170){ l.scared = 0.5;
+    // los normales huyen en modo horror; los SUPER siempre huyen y mucho más rápido
+    const fleeR = l.super ? 240 : 170;
+    if((G.horror || l.super) && d<fleeR){ l.scared = 0.5;
       const a = ang(near.x,near.y,l.x,l.y);
-      tryMove(l, l.x+Math.cos(a)*40*dt, l.y+Math.sin(a)*40*dt);
+      const fs = l.super ? 132 : 40;
+      tryMove(l, l.x+Math.cos(a)*fs*dt, l.y+Math.sin(a)*fs*dt);
     }
-    if(d < 48 && G.carrying < G.carryCap && interactorNear(l.x,l.y,48)){
-      l.taken = true; G.carrying++; SFX.pick();
-      spark(l.x,l.y,C.lumin,10);
+    const reach = l.super ? 58 : 48;
+    const val = l.super ? 10 : 1;
+    const room = l.super ? (G.carrying <= G.carryCap - 5) : (G.carrying < G.carryCap);
+    if(d < reach && room && interactorNear(l.x,l.y,reach)){
+      l.taken = true; G.carrying += val; SFX.pick();
+      spark(l.x,l.y, l.super?C.gold:C.lumin, l.super?22:10);
       if(G.tut===3){ G.tut = 4; tutMsg(); }
-      toast('Lumin  ·  llevan '+G.carrying+'/'+G.carryCap, 1.3);
+      toast((l.super?'¡SUPER Lumin! (+10)  ·  ':'Lumin  ·  ')+'llevan '+G.carrying+'/'+G.carryCap, 1.4);
     }
   }
+}
+function openExit(){
+  G.phase = 'done';
+  G.exitOpen = true; G.exitHintT = 10;
+  SFX.win(); G.flash = 0.3;
+  toast('¡Cuota completa! El reloj se para. Recoge más Lumins o ve a la SALIDA (montaña rusa).', 4.5);
 }
 function updateWorm(dt){
   const wm = G.worm; if(!wm) return;
@@ -1338,7 +1396,7 @@ function updateWorm(dt){
       if(p.char==='baby'){ p.meat = Math.min(100, p.meat + give*7); p.meatEmpty=false;
         toast(pLabel(p)+'El Gusano te devuelve carne fresca',1.6); }
       if(G.tut===4){ G.tut = 5; tutMsg(); }
-      if(G.given >= G.quota) startPuzzle();
+      if(G.given >= G.quota && G.phase==='collect') openExit();
     } else {
       toast('El Gusano tiene hambre. Trae Lumins.', 1.8);
     }
@@ -1385,10 +1443,10 @@ const TUT_MSGS = [
   'Mantén  SHIFT  para correr',
   'Pulsa  ESPACIO  para saltar y esquivar',
   'Acércate a un Lumin y pulsa  E  para recogerlo',
-  'Lleva Lumins al Gusano (arriba) y pulsa  E  para alimentarlo',
-  'Con los tickets, ve al puesto de Wonder y pulsa  E  para comprar',
-  'Mira el minimapa arriba a la derecha: tú eres el triángulo verde',
-  'El reloj corre desde ya. Si llega a CERO, tendrás que resolver un ritual mientras Wonder te caza.'
+  'Lleva Lumins al Gusano (junto a la tienda, arriba) y pulsa  E',
+  'Al completar la cuota el RELOJ SE PARA y se señala la SALIDA. Ve a la montaña rusa, o recoge más Lumins.',
+  'Hay pods de PUZZLE en el mapa: resuélvelos para un SUPER Lumin (vale x10).',
+  'Si el reloj llega a CERO antes de la cuota, Wonder despierta y tienes que hacer el ritual.'
 ];
 function tutMsg(){ if(G.tut < TUT_MSGS.length){ toast(TUT_MSGS[G.tut], 4.2); SFX.bell(); } }
 function updateTutorial(dt){
@@ -1427,25 +1485,25 @@ function updateEvents(dt){
 }
 
 /* ============================ PUZZLES ============================ */
-function startPuzzle(){
-  G.phase = 'puzzle'; G.mode = 'puzzle'; G.timerOn = false;
+// pod: si viene, es un puzzle OPCIONAL que suelta un Super Lumin; sin pod, el viejo gate (ya no se usa)
+function startPuzzle(pod){
+  G.mode = 'puzzle';
   clearOnce();
   SFX.win();
-  const kind = (G.level % 2 === 0) ? 'pairs' : 'simon';
+  const kind = (rint(0,1)===0) ? 'pairs' : 'simon';
   if(kind==='simon'){
     const len = 3 + Math.min(2, Math.floor(G.level/3));
-    G.puzzle = { kind:'simon', pads:[C.blood,C.gold,C.lumin,C.purple], seq:[], input:[],
-      showI:0, showT:0, state:'show', round:0, rounds:3, len, flash:-1 };
+    G.puzzle = { kind:'simon', pod:pod||null, pads:[C.blood,C.gold,C.lumin,C.purple], seq:[], input:[],
+      showI:0, showT:0, state:'show', round:0, rounds:2, len, flash:-1 };
     for(let i=0;i<len;i++) G.puzzle.seq.push(rint(0,3));
   } else {
     const cols = [C.blood, C.gold, C.lumin, C.purple];
     const nodes = [];
     const N = 4;
     for(let i=0;i<N;i++){ nodes.push({ c:cols[i], side:0, i }); nodes.push({ c:cols[i], side:1, i }); }
-    // shuffle each side
-    G.puzzle = { kind:'pairs', nodes, sel:null, links:[], done:0, need:N };
+    G.puzzle = { kind:'pairs', pod:pod||null, nodes, sel:null, links:[], done:0, need:N };
   }
-  toast('¡El reloj se detiene! Resuelve el puzzle para pasar.', 3);
+  toast(pod ? '¡El reloj se detiene! Resuélvelo para un SUPER Lumin.' : '¡El reloj se detiene! Resuelve el puzzle.', 3);
 }
 function updatePuzzle(dt){
   updatePlayer(dt, { canAttack:false });
@@ -1507,8 +1565,18 @@ function updatePuzzle(dt){
 }
 function puzzleSolved(){
   SFX.win();
-  toast('¡Puzzle resuelto!', 1.8);
-  levelClear();
+  const pod = G.puzzle && G.puzzle.pod;
+  G.puzzle = null;
+  if(pod){
+    pod.done = true;
+    // suelta un Super Lumin cerca del pod
+    G.lumins.push({ x:pod.x + rand(-30,30), y:pod.y - 40, phase:rand(0,7), hop:0, taken:false, scared:0, super:true });
+    toast('¡SUPER Lumin liberado! Vale x10, pero es rápido.', 3);
+    G.mode = 'play'; G.graceT = Math.max(G.graceT, 0.8); clearOnce();
+  } else {
+    toast('¡Puzzle resuelto!', 1.8);
+    levelClear();
+  }
 }
 function simonPads(cx,cy){
   const s=120, g=14;
@@ -1598,7 +1666,7 @@ function updateChase(dt){
     for(const p of livePlayers()){
       const node = nearestNode(p);
       const nearN = node && dist(p.x,p.y,node.x,node.y) < 54;
-      const key = (p===G.p2) ? ',' : 'e';
+      const key = interactKey(p);
       if(nearN && pressed(key) && node.by !== p.slot && !node.by){
         node.by = p.slot; node.ch = node.ch || 0; SFX.bell();
         wn.noiseT = 2.6; wn.noiseLoc = { x:node.x, y:node.y };
@@ -1679,7 +1747,7 @@ function updateMash(dt){
   const mg = G.mash; if(!mg) return;
   mg.time -= dt;
   const p = mg.who || G.player;
-  const tap = pressed(' ') || pressed('.') || pressed('/') || mouse.clicked || touch.jumpTap;
+  const tap = pressed(' ') || pressed('5') || pressed('0') || pressed('.') || pressed('/') || mouse.clicked || touch.jumpTap;
   if(tap){ mg.got++; SFX.jump(); p.walkT+=1; }
   if(mg.got >= mg.need){
     const m = mg.mon;
@@ -1729,7 +1797,7 @@ function drawMash(){
 function startServers(L){
   G.mode = 'servers'; G.phase = 'servers';
   musicMood = 'night';
-  const w = { w:4600, h:820, pad:28, obs:[], mood:'servers' };
+  const w = { w:9200, h:820, pad:28, obs:[], mood:'servers' };   // el DOBLE de largo
   G.world = w;
   spawnPlayers(140, w.h/2);
   if(G.p2){ G.p2.x = 110; G.player.x = 170; }
@@ -1737,26 +1805,52 @@ function startServers(L){
   G.lumins=[]; G.monsters=[]; G.shots=[]; G.parts=[]; G.pickups=[];
   G.worm=null; G.shop=null; G.coaster=null; G.machines=null;
   // server racks as obstacles (leave a wide central lane)
-  for(let x=900; x<w.w-560; x+=360){
+  for(let x=900; x<w.w-560; x+=340){
     const top = chance(0.5);
     const h = rint(140,210);
     w.obs.push({ x, y: top ? 36 : w.h-36-h, w: rint(90,140), h, kind:'server' });
-    if(chance(0.55)) w.obs.push({ x:x+150, y: top ? w.h-36-h : 36, w: rint(80,120), h:rint(110,180), kind:'server' });
+    if(chance(0.5)) w.obs.push({ x:x+150, y: top ? w.h-36-h : 36, w: rint(80,120), h:rint(110,180), kind:'server' });
   }
-  // pits across the lane
+  // OBBY: huecos + plataformas móviles. Más largo, más difícil.
   const pits = [];
-  for(let i=0;i<5;i++){ pits.push({ x: 1250 + i*680 + rand(-60,60), w: rint(72,96) }); }
+  const plats = [];
+  let px = 1050;
+  let i = 0;
+  while(px < w.w - 460){
+    i++;
+    const wide = (i % 3 === 0);                    // 1 de cada 3 es ancho (salto con carrera)
+    const pw = wide ? rint(150,210) : rint(80,120);
+    pits.push({ x:px, w:pw });
+    // los huecos anchos llevan una plataforma móvil que hay que cronometrar
+    if(wide || chance(0.35)){
+      const vert = chance(0.4);
+      plats.push({
+        x: px + pw/2, y: w.h/2,
+        w: vert ? 96 : 120, axis: vert ? 'y' : 'x',
+        range: vert ? 150 : (pw/2 + 40),
+        phase: rand(0,6), spd: rand(1.1, 1.8)
+      });
+    }
+    px += pw + rint(200, 320);
+  }
   G.serverGame = {
     button:{ x:560, y:w.h/2, r:44, pressed:false },
     exit:{ x:w.w-170, y:w.h/2 },
-    monster:null, pits, safeX:140, ended:false, endT:0
+    monster:null, pits, plats, safeX:140, ended:false, endT:0, t:0
   };
   bossBanner.txt = 'SALA DE SERVIDORES'; bossBanner.t = 2.4;
-  toast('Encuentra el botón (E). Luego corre y salta (ESPACIO) sobre los huecos.', 4.2);
+  toast('Botón ('+(P2on()?'E/1':'E')+'). Luego CORRE, salta los huecos y usa las plataformas. Es largo.', 5);
+}
+function platTop(pl, t){
+  return {
+    x: pl.x + (pl.axis==='x' ? Math.sin(t*pl.spd + pl.phase)*pl.range : 0),
+    y: pl.y + (pl.axis==='y' ? Math.sin(t*pl.spd + pl.phase)*pl.range : 0),
+  };
 }
 function updateServers(dt){
   G.t += dt;
   const sg = G.serverGame, w = G.world;
+  sg.t += dt;
   updatePlayer(dt, { canAttack:false });
   updateParts(dt);
   // camera: follow the trailing runner so nobody falls off-screen
@@ -1767,24 +1861,37 @@ function updateServers(dt){
   if(w.h < VH) G.cam.y = (w.h - VH)/2;
   G.cam2.x = G.cam.x; G.cam2.y = G.cam.y;
 
-  // pit hazard (only if grounded) — per player
+  // pit hazard — a menos que estés en el aire O sobre una plataforma móvil
   for(const p of livePlayers()){
     let overPit = null;
     for(const pit of sg.pits){ if(p.x > pit.x - 4 && p.x < pit.x + pit.w + 4) overPit = pit; }
     const airborne = p.z >= 6 || p.hopT > 0 || (p.char==='meowl' && p.flying)
       || (p.char==='baby' && Math.hypot(p.vx,p.vy) > 210);
-    if(overPit && !airborne && p.invT <= 0){
+    // ¿está encima de una plataforma?
+    let onPlat = null;
+    for(const pl of (sg.plats||[])){
+      const pt = platTop(pl, sg.t);
+      if(Math.abs(p.x - pt.x) < pl.w/2 && Math.abs(p.y - pt.y) < 34){ onPlat = { pl, pt }; break; }
+    }
+    if(onPlat && !airborne){
+      // te lleva la plataforma
+      const prev = onPlat.pl._prev || onPlat.pt;
+      p.x += (onPlat.pt.x - prev.x);
+      p.y += (onPlat.pt.y - prev.y);
+      p.y = lerp(p.y, onPlat.pt.y, 0.2);
+    } else if(overPit && !airborne && p.invT <= 0){
       hurtPlayer(1, p.x, p.y+40, p);
-      p.x = overPit.x - 54; p.vx = 0; p.vy = 0;
-      toast(pLabel(p)+(p.char==='baby' ? '¡Al vacío! Cruza a toda velocidad.' : '¡Al vacío! Toma carrera y salta con ESPACIO.'), 1.8);
+      p.x = overPit.x - 58; p.y = w.h/2; p.vx = 0; p.vy = 0;
+      toast(pLabel(p)+'¡Al vacío! Vuelve a intentarlo.', 1.6);
     }
   }
+  for(const pl of (sg.plats||[])) pl._prev = platTop(pl, sg.t);
 
   // button
   if(!sg.button.pressed){
     if(interactorNear(sg.button.x, sg.button.y, sg.button.r + 20)){
       sg.button.pressed = true; SFX.boss(); G.shake = 16; G.flash = 0.6;
-      sg.monster = { x: 120, y: w.h/2, spd: 196, t:0 };
+      sg.monster = { x: 120, y: w.h/2, spd: 210, t:0 };
       bossBanner.txt = '¡CORRE!'; bossBanner.t = 2;
       toast('¡Lo despertaste! ¡CORRAN a la salida!', 3);
     }
@@ -1792,7 +1899,7 @@ function updateServers(dt){
     const mo = sg.monster; mo.t += dt;
     const tgt = nearestPlayer(mo.x, mo.y);
     const toP = ang(mo.x, mo.y, tgt.x, tgt.y);
-    let spd = mo.spd + G.level*2;
+    let spd = mo.spd + G.level*2 + mo.t*4.5;   // acelera con el tiempo
     // monster ignores pits, follows relentlessly
     mo.x += Math.cos(toP)*spd*dt;
     mo.y += Math.sin(toP)*spd*dt;
@@ -1930,6 +2037,19 @@ function drawServerScene(){
     ctx.strokeStyle='#c8912e'; ctx.lineWidth=3;
     ctx.beginPath(); ctx.moveTo(px, VH*0.2); ctx.lineTo(px, VH*0.8); ctx.moveTo(px+pit.w, VH*0.2); ctx.lineTo(px+pit.w, VH*0.8); ctx.stroke();
   }
+  // plataformas móviles
+  for(const pl of (sg.plats||[])){
+    const pt = platTop(pl, sg.t);
+    const x = pt.x - cam.x, y = pt.y - cam.y;
+    ctx.fillStyle='#3a4a5a'; roundRect(x-pl.w/2, y-12, pl.w, 24, 5); ctx.fill();
+    ctx.strokeStyle='#7fd0e8'; ctx.lineWidth=2; roundRect(x-pl.w/2, y-12, pl.w, 24, 5); ctx.stroke();
+    ctx.fillStyle='rgba(127,208,232,0.5)';
+    for(let k=-1;k<=1;k++) ctx.fillRect(x+k*14-2, y-4, 4, 8);
+    // flechitas de dirección
+    ctx.fillStyle='rgba(127,208,232,0.35)';
+    if(pl.axis==='x'){ ctx.beginPath(); ctx.moveTo(x-pl.w/2-10,y); ctx.lineTo(x-pl.w/2-3,y-5); ctx.lineTo(x-pl.w/2-3,y+5); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(x+pl.w/2+10,y); ctx.lineTo(x+pl.w/2+3,y-5); ctx.lineTo(x+pl.w/2+3,y+5); ctx.fill(); }
+  }
   // button
   if(!sg.button.pressed){
     const bx=sg.button.x-cam.x, by=sg.button.y-cam.y;
@@ -1992,9 +2112,9 @@ function startBoss(L){
   if(kind==='nightmare'){
     G.boss = bossBase(G.world.w/2, 150, 40, 44, 'Wonder Pesadilla', 'nightmare');
   } else if(kind==='worm'){
-    G.boss = bossBase(G.world.w/2, G.world.h/2, 90, 34, 'El Gusano', 'worm');
-    G.boss.holes = []; for(let i=0;i<5;i++) G.boss.holes.push({ x:rand(200,G.world.w-200), y:rand(160,G.world.h-160) });
-    G.boss.hidden = true; G.boss.hidT = 1.2;
+    G.boss = bossBase(G.world.w/2, G.world.h/2, 90, 54, 'El Gusano', 'worm');
+    G.boss.holes = []; for(let i=0;i<6;i++) G.boss.holes.push({ x:rand(200,G.world.w-200), y:rand(160,G.world.h-160) });
+    G.boss.hidden = true; G.boss.hidT = 1.2; G.boss.aggro = 0;
   } else if(kind==='finale'){
     buildArenaWorld('void', 1400, 1000);
     G.boss = bossBase(G.world.w/2, 160, 46, 70, 'Wonder', 'finale');
@@ -2023,9 +2143,32 @@ function updateBossPhase(b){
   const f = b.hp/b.maxhp;
   const np = f>0.66?1 : f>0.33?2 : 3;
   if(np!==b.phase){ b.phase = np; b.invT = 1.0; SFX.transform(); G.flash=0.4;
-    if(b.kind==='nightmare'||b.kind==='finale') b.form = 'wonder', b.formT = 1.6;
-    toast('¡El monstruo cambia de forma!', 1.6);
+    if(b.kind==='nightmare'||b.kind==='finale'){ b.form = 'wonder'; b.formT = 1.6;
+      toast('¡El monstruo cambia de forma!', 1.6); }
+    else if(b.kind==='worm'){ startWormDoorChase(b); }
+    else toast('¡El monstruo cambia de forma!', 1.6);
   }
+}
+function startWormDoorChase(b){
+  const w = G.world;
+  b.mode = 'doorchase'; b.hidden = false; b.invT = 999; b.vulnerable = false;
+  b.chaseT = 5.5; b.mouth = 1;
+  // el Gusano rompe la pared por un lado; la puerta está en el opuesto
+  const fromLeft = (nearestPlayer(w.w/2,w.h/2).x > w.w/2);
+  b.x = fromLeft ? 60 : w.w-60; b.y = w.h/2;
+  b.door = { x: fromLeft ? w.w-70 : 70, y: w.h/2, open:true };
+  SFX.scream(); G.flash = 0.7; G.shake = 20;
+  bossBanner.txt = '¡EL GUSANO ROMPE LA PARED!'; bossBanner.t = 2.6;
+  toast('¡Corran a la puerta antes de que os alcance!', 3);
+}
+function endWormDoorChase(b){
+  b.mode = 'idle'; b.hidden = true; b.hidT = 0.9; b.invT = 0.8;
+  b.aggro = b.phase;                       // más rápido y agresivo cada fase
+  b.door = null;
+  for(const q of livePlayers()){ q.invT = Math.max(q.invT, 1.4); }
+  SFX.win(); G.shake = 10;
+  bossBanner.txt = 'FASE ' + b.phase; bossBanner.t = 2;
+  toast('La puerta se cierra. El Gusano vuelve... más furioso.', 2.4);
 }
 function bossDefeated(b){
   burst(b.x,b.y,C.gold,40); G.shake=20; SFX.win(); musicMood='night';
@@ -2057,8 +2200,8 @@ function updateBoss(dt){
     updateWormBoss(dt, b, p);
   }
 
-  // boss contact
-  if(!b.dead && !b.hidden){
+  // boss contact (el chase de puerta del Gusano lo gestiona updateWormBoss)
+  if(!b.dead && !b.hidden && b.mode!=='doorchase'){
     for(const q of livePlayers()){
       if(dist(b.x,b.y,q.x,q.y) < b.r + q.r - 4 && q.invT<=0 && q.hopT<=0){
         hurtPlayer(1, b.x, b.y, q);
@@ -2123,6 +2266,26 @@ function updateArenaBoss(dt, b, p){
 }
 
 function updateWormBoss(dt, b, p){
+  // ---- interludio: el Gusano persigue hasta la puerta ----
+  if(b.mode==='doorchase'){
+    b.chaseT -= dt; b.mouth = 1;
+    const tgt = nearestPlayer(b.x, b.y);
+    const a = ang(b.x, b.y, tgt.x, tgt.y);
+    const spd = 300 + b.phase*40;
+    b.x = clamp(b.x + Math.cos(a)*spd*dt, 40, G.world.w-40);
+    b.y = clamp(b.y + Math.sin(a)*spd*dt, 100, G.world.h-100);
+    if(chance(0.5)) spark(b.x+rand(-30,30), b.y+rand(-30,30), C.blood, 1);
+    for(const q of livePlayers()){
+      if(dist(b.x,b.y,q.x,q.y) < b.r + q.r + 6 && q.invT<=0){
+        hurtPlayer(2, b.x, b.y, q);
+        const ka = ang(b.x,b.y,q.x,q.y); q.vx += Math.cos(ka)*360; q.vy += Math.sin(ka)*360;
+      }
+    }
+    const allAtDoor = livePlayers().length && livePlayers().every(q=>dist(b.door.x,b.door.y,q.x,q.y) < 90);
+    if(b.chaseT<=0 || allAtDoor) endWormDoorChase(b);
+    return;
+  }
+  const ag = b.aggro || 0;   // 0 al principio, sube tras cada chase de puerta
   b.hidT -= dt;
   if(b.hidden){
     b.vulnerable = false;
@@ -2130,8 +2293,9 @@ function updateWormBoss(dt, b, p){
       // emerge from a hole nearest-ish player
       const h = pick(b.holes);
       b.x = h.x; b.y = h.y; b.hidden = false; b.emergeT = 0.6; b.mouth = 0;
-      b.mode = chance(0.5) ? 'lunge' : 'spit';
-      b.telegraph = 0.6; SFX.boss();
+      // más fases -> más probabilidad de lunge y a veces doble ataque
+      b.mode = chance(0.4 + ag*0.18) ? 'lunge' : 'spit';
+      b.telegraph = Math.max(0.28, 0.6 - ag*0.12); SFX.boss();
     }
   } else {
     b.emergeT -= dt;
@@ -2141,20 +2305,24 @@ function updateWormBoss(dt, b, p){
         if(b.mode==='lunge'){
           b.la = ang(b.x,b.y,p.x,p.y); b.state='lunge'; b.lungeT = 0.9; SFX.scream();
         } else {
-          for(let i=-2;i<=2;i++){ const a = ang(b.x,b.y,p.x,p.y)+i*0.26;
-            G.shots.push({ x:b.x, y:b.y-20, vx:Math.cos(a)*280, vy:Math.sin(a)*280, r:9, life:2.6, dmg:1, friendly:false, goo:true }); }
+          const spread = 2 + ag;
+          for(let i=-spread;i<=spread;i++){ const a = ang(b.x,b.y,p.x,p.y)+i*0.22;
+            G.shots.push({ x:b.x, y:b.y-20, vx:Math.cos(a)*(280+ag*40), vy:Math.sin(a)*(280+ag*40), r:9, life:2.6, dmg:1, friendly:false, goo:true }); }
+          if(ag>=2){ for(let i=0;i<6;i++){ const a=rand(0,6.28);
+            G.shots.push({ x:b.x, y:b.y-20, vx:Math.cos(a)*220, vy:Math.sin(a)*220, r:8, life:2.4, dmg:1, friendly:false, goo:true }); } }
           SFX.shoot();
-          b.vulnerable = true; b.mouth = 1; b.openT = 1.6;
+          b.vulnerable = true; b.mouth = 1; b.openT = Math.max(1.0, 1.6 - ag*0.2);
         }
       }
     }
     if(b.state==='lunge'){
-      b.x += Math.cos(b.la)*520*dt; b.y += Math.sin(b.la)*520*dt; b.lungeT -= dt;
+      const ls = 520 + ag*90;
+      b.x += Math.cos(b.la)*ls*dt; b.y += Math.sin(b.la)*ls*dt; b.lungeT -= dt;
       b.mouth = 1;
       b.x = clamp(b.x, 90, G.world.w-90); b.y = clamp(b.y, 90, G.world.h-90);
-      if(b.lungeT<=0){ b.state='idle'; b.vulnerable = true; b.mouth = 1; b.openT = 1.5; }
+      if(b.lungeT<=0){ b.state='idle'; b.vulnerable = true; b.mouth = 1; b.openT = Math.max(1.0, 1.5 - ag*0.2); }
     }
-    if(b.openT>0){ b.openT -= dt; if(b.openT<=0){ b.vulnerable=false; b.mouth=0; b.hidden=true; b.hidT = 1.1; } }
+    if(b.openT>0){ b.openT -= dt; if(b.openT<=0){ b.vulnerable=false; b.mouth=0; b.hidden=true; b.hidT = Math.max(0.6, 1.1 - ag*0.15); } }
   }
 }
 
@@ -2203,10 +2371,10 @@ function updateCoasterBoss(dt){
     G.shots.push({ x:g.cartX, y:g.cartY-10, vx:Math.cos(a)*720, vy:Math.sin(a)*720, r:5, life:1.4, dmg:1, friendly:true });
     SFX.shoot();
   }
-  // shoot — P2 (auto-aim, key ".")
+  // shoot — P2 (auto-aim, tecla 5)
   if(twoP && G.p2){
     G.p2.fireCd -= dt;
-    if((keys['.'] || mouse.down) && G.p2.fireCd<=0){
+    if((keys['5'] || mouse.down) && G.p2.fireCd<=0){
       G.p2.fireCd = 0.13;
       const tg = aimAt();
       const a = tg ? ang(g.cartX,g.cartY,tg.x,tg.y) : -Math.PI/2;
@@ -2332,6 +2500,7 @@ function startLevel(idx){
   G.phase = 'collect'; G.escaped = false;
   G.puzzle = null; G.boss = null; G.bossHit = null; G.coasterGame = null;
   G.chase = null; G.serverGame = null; G.mash = null; G.machines = null;
+  G.puzzlePods = null; G.exitOpen = false; G.exitHintT = 0;
   G.blackout = false; G.litFrac = 0;
   bossBanner.t = 0;
   G.horror = !!L.horror;
@@ -2361,7 +2530,7 @@ function startLevel(idx){
   } else {
     G.tut = 99;
     if(L.tut && G.numPlayers===2){
-      toast('2 JUG · P1: WASD, F atacar, ESPACIO, E interactuar. P2: flechas, "." atacar, "/" saltar, "," interactuar.', 7);
+      toast('2 JUG · P1: WASD · F atacar · ESPACIO saltar · E interactuar.   P2: FLECHAS · 5 atacar · 0 saltar · 1 interactuar.', 8);
     } else if(L.tut){
       const hints = {
         meowl:'Eres Meowl. ESPACIO = volar (gasta estámina). CLICK en el suelo = disfraz de monstruo. Recoge Lumins con E y aliméntalos al Gusano.',
@@ -2910,15 +3079,20 @@ function drawWander(x,y,s){
 function drawLumin(l){
   const x=l.x, y=l.y - l.hop;
   ctx.save(); ctx.translate(x,y);
+  if(l.super) ctx.scale(1.9, 1.9);
   // glow
   const g = ctx.createRadialGradient(0,0,2,0,0,38);
-  g.addColorStop(0, l.scared>0 ? 'rgba(200,50,60,0.5)' : 'rgba(79,217,138,0.42)');
+  g.addColorStop(0, l.scared>0 ? 'rgba(200,50,60,0.5)' : (l.super ? 'rgba(240,200,90,0.55)' : 'rgba(79,217,138,0.42)'));
   g.addColorStop(1,'rgba(79,217,138,0)');
   ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,38,0,7); ctx.fill();
+  if(l.super){
+    ctx.strokeStyle='rgba(240,200,90,'+(0.5+0.3*Math.sin(l.phase*2))+')'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.arc(0,0,22,0,7); ctx.stroke();
+  }
   // shadow
   ctx.fillStyle='rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(0,l.hop+14,12,5,0,0,7); ctx.fill();
   // body
-  ctx.fillStyle = l.scared>0 ? '#b8564a' : C.lumin;
+  ctx.fillStyle = l.scared>0 ? '#b8564a' : (l.super ? '#f0c85a' : C.lumin);
   ctx.beginPath(); ctx.moveTo(-11,10);
   ctx.quadraticCurveTo(-16,-14,-6,-16);
   ctx.quadraticCurveTo(-9,-40,-3,-16);
@@ -2938,6 +3112,30 @@ function drawLumin(l){
   if(l.scared>0){ ctx.arc(0,6,3,Math.PI,0); }
   else { ctx.moveTo(-3,4); ctx.quadraticCurveTo(0,7,3,4); }
   ctx.stroke();
+  ctx.restore();
+}
+function drawPuzzlePod(pd){
+  ctx.save(); ctx.translate(pd.x, pd.y);
+  const bob = Math.sin(pd.t*2)*3;
+  ctx.fillStyle='rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(0,20,20,7,0,0,7); ctx.fill();
+  if(pd.done){
+    ctx.fillStyle='#2a3a30'; ctx.beginPath(); ctx.arc(0,0,16,0,7); ctx.fill();
+    ctx.fillStyle=C.lumin; ctx.font="700 14px Bungee"; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('✓', 0, 1); ctx.textBaseline='alphabetic';
+    ctx.restore(); return;
+  }
+  // pedestal
+  ctx.fillStyle='#3a2f22'; ctx.fillRect(-14, 6, 28, 14);
+  ctx.strokeStyle=C.gold; ctx.lineWidth=2; ctx.strokeRect(-14, 6, 28, 14);
+  // floating rune orb
+  const g = ctx.createRadialGradient(0,-6+bob,2,0,-6+bob,26);
+  g.addColorStop(0,'rgba(240,200,90,0.5)'); g.addColorStop(1,'rgba(240,200,90,0)');
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,-6+bob,26,0,7); ctx.fill();
+  ctx.fillStyle='#f0c85a'; ctx.beginPath(); ctx.arc(0,-6+bob,9,0,7); ctx.fill();
+  ctx.strokeStyle='#0d0720'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(-4,-9+bob); ctx.lineTo(4,-3+bob); ctx.moveTo(4,-9+bob); ctx.lineTo(-4,-3+bob); ctx.stroke();
+  ctx.fillStyle=C.cream; ctx.font="700 9px Bungee"; ctx.textAlign='center';
+  ctx.fillText('PUZZLE', 0, 34);
   ctx.restore();
 }
 function drawWorm(wm){
@@ -2982,6 +3180,7 @@ function drawMonster(m){
   if(m.dead){ ctx.globalAlpha = 1 - (m.fade/0.5); }
   // shadow
   ctx.fillStyle='rgba(0,0,0,0.28)'; ctx.beginPath(); ctx.ellipse(0,m.r*0.8,m.r*0.9,m.r*0.35,0,0,7); ctx.fill();
+  if(m.type==='jackbox' && m.state==='box' && m.bob) ctx.translate(0, m.bob);   // bote de la caja
   const flash = m.hitFlash>0;
   ctx.fillStyle = flash ? '#fff' : m.color;
   if(m.type==='crawler'){
@@ -3716,25 +3915,26 @@ function drawHUD(){
   }
 }
 function drawHUDShared(){
-  // timer (center) — during collect
-  if(G.mode==='play' && G.phase!=='puzzle'){
+  // timer (center) — during collect / done
+  if((G.mode==='play' || G.mode==='escaping') && G.phase!=='puzzle'){
     const cx = VW/2;
     const barW = Math.min(380, VW-260);
-    const frac = clamp(G.timer / LEVEL_TIME, 0, 1);
+    const done = (G.phase==='done');
+    const frac = done ? 1 : clamp(G.timer / LEVEL_TIME, 0, 1);
     ctx.fillStyle = 'rgba(10,6,18,0.82)'; roundRect(cx-barW/2-6, 12, barW+12, 30, 6); ctx.fill();
-    ctx.fillStyle = G.timer<12 ? C.blood : (G.timer<25? C.gold : C.lumin);
-    if(G.graceT<=0 && G.timer<12 && Math.floor(G.t*8)%2) ctx.fillStyle='#f4e9d0';
+    ctx.fillStyle = done ? '#4f8fd9' : (G.timer<12 ? C.blood : (G.timer<25? C.gold : C.lumin));
+    if(!done && G.graceT<=0 && G.timer<12 && Math.floor(G.t*8)%2) ctx.fillStyle='#f4e9d0';
     roundRect(cx-barW/2, 15, barW*frac, 24, 4); ctx.fill();
     ctx.strokeStyle='rgba(243,232,208,0.4)'; ctx.lineWidth=1.5; roundRect(cx-barW/2, 15, barW, 24, 4); ctx.stroke();
     ctx.fillStyle=C.cream; ctx.font="600 14px Fredoka, sans-serif"; ctx.textAlign='center';
     const secs = Math.max(0, Math.ceil(G.timer));
-    ctx.fillText(G.graceT>0 ? 'PREPÁRATE...' : (secs + ' s'), cx, 33);
+    ctx.fillText(done ? 'RELOJ PARADO · ve a la SALIDA' : (G.graceT>0 ? 'PREPÁRATE...' : (secs + ' s')), cx, 33);
     ctx.font="700 13px Bungee, sans-serif";
-    ctx.fillStyle=C.lumin;
+    ctx.fillStyle= done ? '#4fd98a' : C.lumin;
     const label = G.blackout ? 'MÁQUINAS' : 'GUSANO';
     const gv = G.blackout ? G.machines.filter(m=>m.lit).length : Math.min(G.given,G.quota);
     const gq = G.blackout ? G.machines.length : G.quota;
-    ctx.fillText(label+'  '+gv+' / '+gq, cx, 60);
+    ctx.fillText(label+'  '+(done?'✓ ':'')+gv+' / '+gq, cx, 60);
     ctx.fillStyle= G.carrying>=G.carryCap ? C.blood : C.gold;
     ctx.fillText('LLEVAN  '+G.carrying+' / '+G.carryCap, cx, 78);
   }
@@ -3783,10 +3983,11 @@ function drawHUDShared(){
   }
 }
 function drawMinimap(){
-  if(!G.world || !(G.mode==='play' || G.mode==='chase')) return;
+  if(!G.world || !(G.mode==='play' || G.mode==='chase' || G.mode==='escaping')) return;
   const w = G.world;
-  const mw = 172, mh = Math.round(mw * (w.h / w.w));
-  const mx = VW - mw - 16, my = 66;
+  const mw = 150, mh = Math.round(mw * (w.h / w.w));
+  const mx = VW - mw - 8;                 // pegado a la esquina derecha
+  const my = P2on() ? 100 : 46;           // debajo del HUD de P2 en 2 jugadores
   const sx = mw / w.w, sy = mh / w.h;
   const P = (wx,wy)=>[mx + wx*sx, my + wy*sy];
   ctx.save();
@@ -3797,9 +3998,10 @@ function drawMinimap(){
   ctx.beginPath(); ctx.rect(mx,my,mw,mh); ctx.clip();
   ctx.fillStyle = 'rgba(30,24,42,0.6)'; ctx.fillRect(mx,my,mw,mh);
 
-  // uncollected lumins
-  ctx.fillStyle = 'rgba(79,217,138,0.5)';
-  for(const l of G.lumins){ if(l.taken) continue; const [x,y]=P(l.x,l.y); ctx.fillRect(x-1,y-1,2,2); }
+  // uncollected lumins (los SUPER, más grandes y dorados)
+  for(const l of G.lumins){ if(l.taken) continue; const [x,y]=P(l.x,l.y);
+    if(l.super){ ctx.fillStyle='#f0c85a'; ctx.fillRect(x-2,y-2,4,4); }
+    else { ctx.fillStyle='rgba(79,217,138,0.5)'; ctx.fillRect(x-1,y-1,2,2); } }
 
   const glyph = (wx,wy,txt,col)=>{ const [x,y]=P(wx,wy);
     ctx.fillStyle='rgba(10,6,18,0.85)'; ctx.beginPath(); ctx.arc(x,y,8,0,7); ctx.fill();
@@ -3808,7 +4010,9 @@ function drawMinimap(){
 
   if(G.worm) glyph(G.worm.x, G.worm.y, 'G', C.lumin);
   if(G.shop) glyph(G.shop.x, G.shop.y, '$', C.gold);
-  if(G.coaster) glyph(G.coaster.x, G.coaster.y, 'S', G.chase && !G.chase.escapeReady ? 'rgba(202,191,166,0.4)' : '#e8c880');
+  if(G.coaster) glyph(G.coaster.x, G.coaster.y, 'S',
+    (G.exitOpen || (G.chase && G.chase.escapeReady)) ? '#4fd98a' : (G.chase ? 'rgba(202,191,166,0.4)' : '#e8c880'));
+  if(G.puzzlePods) for(const pd of G.puzzlePods) if(!pd.done) glyph(pd.x, pd.y, 'P', '#f0c85a');
   if(G.machines) for(const m of G.machines) glyph(m.x, m.y, m.lit?'●':'✦', m.lit?C.lumin:C.gold);
   if(G.chase) for(const n of G.chase.nodes) glyph(n.x, n.y, n.done?'✓':'?', n.done?C.lumin:C.gold);
 
@@ -3856,25 +4060,29 @@ function anyPlayerNear(x,y,rad){
   return null;
 }
 function getPrompt(){
+  const K = P2on() ? '[E/1]' : '[E]';
   if(G.mode==='chase' && G.chase && !G.chase.escapeReady){
     for(const p of livePlayers()){
       const n = nearestNode(p);
       if(n && dist(n.x,n.y,p.x,p.y) < 54){
         if(n.by === p.slot) return 'Activando... quédate cerca';
-        if(!n.by) return '[E] Activar tótem';
+        if(!n.by) return K+' Activar tótem';
       }
     }
     return '';
   }
   if(G.mode!=='play') return '';
   if(G.worm && anyPlayerNear(G.worm.x,G.worm.y, G.worm.r+30))
-    return G.carrying>0 ? '[E] Alimentar al Gusano ('+G.carrying+')' : 'El Gusano tiene hambre...';
-  if(nearShop()) return '[E] Abrir la tienda';
+    return G.carrying>0 ? K+' Alimentar al Gusano ('+G.carrying+')' : 'El Gusano tiene hambre...';
+  if(nearShop()) return K+' Abrir la tienda';
   if(G.machines){ for(const m of G.machines){ if(m.lit) continue;
     if(anyPlayerNear(m.x,m.y, 60))
-      return G.carrying>0 ? '[E] Cargar máquina ('+m.fed+'/'+m.need+')' : 'La máquina necesita Lumins'; } }
-  for(const l of G.lumins) if(!l.taken && anyPlayerNear(l.x,l.y,48))
-    return G.carrying<G.carryCap ? '[E] Recoger Lumin' : 'No puedes llevar más';
+      return G.carrying>0 ? K+' Cargar máquina ('+m.fed+'/'+m.need+')' : 'La máquina necesita Lumins'; } }
+  if(G.puzzlePods) for(const pd of G.puzzlePods) if(!pd.done && anyPlayerNear(pd.x,pd.y,50))
+    return K+' Resolver el puzzle (Super Lumin)';
+  for(const l of G.lumins) if(!l.taken && anyPlayerNear(l.x,l.y, l.super?58:48))
+    return G.carrying<G.carryCap ? (l.super ? K+' Recoger SUPER Lumin (x10)' : K+' Recoger Lumin') : 'No puedes llevar más';
+  if(G.exitOpen && G.coaster && anyPlayerNear(G.coaster.x,G.coaster.y, G.coaster.r+10)) return '¡A la SALIDA! Sube a la montaña rusa';
   if(G.coaster && anyPlayerNear(G.coaster.x,G.coaster.y, G.coaster.r+10)) return 'Montaña rusa — salida de emergencia';
   return '';
 }
@@ -3997,6 +4205,8 @@ function drawWorldScene(dim, paneMode){
   if(G.shop) drawList.push({ y:G.shop.y, fn:drawShopStall });
   if(G.coaster) drawList.push({ y:G.coaster.y, fn:drawCoaster });
   if(G.worm) drawList.push({ y:G.worm.y+70, fn:()=>{ ctx.save(); ctx.translate(-cam.x,-cam.y); drawWorm(G.worm); ctx.restore(); } });
+  if(G.puzzlePods) for(const pd of G.puzzlePods)
+    drawList.push({ y:pd.y, fn:()=>{ ctx.save(); ctx.translate(-cam.x,-cam.y); drawPuzzlePod(pd); ctx.restore(); } });
   for(const l of G.lumins) if(!l.taken) drawList.push({ y:l.y, fn:()=>{ ctx.save(); ctx.translate(-cam.x,-cam.y); drawLumin(l); ctx.restore(); } });
   for(const pk of G.pickups) drawList.push({ y:pk.y, fn:()=>drawPickup(pk) });
   for(const m of G.monsters) drawList.push({ y:m.y, fn:()=>{ ctx.save(); ctx.translate(-cam.x,-cam.y); drawMonster(m); ctx.restore(); } });
@@ -4026,6 +4236,17 @@ function drawWorldScene(dim, paneMode){
     ctx.save(); ctx.translate(-cam.x,-cam.y);
     for(const h of G.boss.holes){ ctx.fillStyle='#0c0716'; ctx.beginPath(); ctx.ellipse(h.x,h.y,44,20,0,0,7); ctx.fill();
       ctx.strokeStyle=C.wormD; ctx.lineWidth=4; ctx.stroke(); }
+    // puerta del interludio
+    if(G.boss.mode==='doorchase' && G.boss.door){
+      const d = G.boss.door;
+      ctx.fillStyle='#1a1206'; ctx.fillRect(d.x-30, d.y-70, 60, 140);
+      ctx.fillStyle= (Math.sin(G.t*6)>0) ? '#4fd98a' : '#2a5a44'; ctx.fillRect(d.x-22, d.y-58, 44, 116);
+      ctx.fillStyle=C.cream; ctx.font="700 13px Bungee, sans-serif"; ctx.textAlign='center';
+      ctx.fillText('PUERTA', d.x, d.y-80);
+      const g=ctx.createRadialGradient(d.x,d.y,10,d.x,d.y,120);
+      g.addColorStop(0,'rgba(79,217,138,0.25)'); g.addColorStop(1,'rgba(79,217,138,0)');
+      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(d.x,d.y,120,0,7); ctx.fill();
+    }
     ctx.restore();
   }
 
@@ -4071,6 +4292,21 @@ function drawWorldScene(dim, paneMode){
   // machines (blackout level)
   if(G.machines){
     for(const m of G.machines){ drawMachine(m); }
+  }
+  // salida marcada: flecha hacia la montaña rusa mientras dura la pista
+  if(G.exitOpen && G.coaster && G.exitHintT > 0){
+    const cst = G.coaster;
+    ctx.save(); ctx.translate(cst.x, cst.y - 150 - Math.sin(G.t*4)*6);
+    ctx.fillStyle = C.lumin; ctx.font="700 15px Bungee, sans-serif"; ctx.textAlign='center';
+    ctx.fillText('▼ SALIDA ('+Math.ceil(G.exitHintT)+')', 0, 0);
+    ctx.restore();
+    for(const p of livePlayers()){
+      const a = ang(p.x,p.y,cst.x,cst.y);
+      ctx.save(); ctx.translate(p.x+Math.cos(a)*70, p.y+Math.sin(a)*70); ctx.rotate(a);
+      ctx.fillStyle = C.lumin; ctx.globalAlpha = 0.5 + 0.4*Math.sin(G.t*6);
+      ctx.beginPath(); ctx.moveTo(0,-10); ctx.lineTo(24,0); ctx.lineTo(0,10); ctx.fill();
+      ctx.globalAlpha = 1; ctx.restore();
+    }
   }
   // tutorial markers
   if(G.tut < 90) drawTutMarkers();
@@ -4323,12 +4559,14 @@ function drawCoasterScene(){
 /* ---- puzzle render ---- */
 function drawPuzzle(){
   ctx.fillStyle='rgba(13,7,32,0.82)'; ctx.fillRect(0,0,VW,VH);
-  const pz = G.puzzle, cx=VW/2, cy=VH/2;
+  const pz = G.puzzle; if(!pz) return;
+  const cx=VW/2, cy=VH/2;
   ctx.textAlign='center';
   ctx.fillStyle=C.gold; ctx.font="700 22px Bungee, sans-serif";
   ctx.fillText(pz.kind==='simon' ? 'REPITE LA SECUENCIA' : 'CONECTA LOS COLORES', cx, cy-190);
   ctx.fillStyle=C.cream; ctx.font="400 13px Fredoka, sans-serif";
-  ctx.fillText('El reloj está detenido mientras resuelves esto.', cx, cy-166);
+  ctx.fillText(pz.pod ? 'Resuélvelo para un SUPER Lumin (x10). El reloj está parado.'
+    : 'El reloj está detenido mientras resuelves esto.', cx, cy-166);
 
   if(pz.kind==='simon'){
     const P = simonPads(cx,cy);
@@ -4451,9 +4689,29 @@ function updatePlay(dt){
     return;
   }
 
+  // pods de puzzle -> Super Lumin
+  if(G.puzzlePods){
+    for(const pd of G.puzzlePods){
+      pd.t += dt;
+      if(!pd.done && interactorNear(pd.x, pd.y, 46)){ startPuzzle(pd); return; }
+    }
+  }
+
+  // salida marcada: llegar a la montaña rusa termina el nivel
+  if(G.exitHintT > 0) G.exitHintT -= dt;
+  if(G.exitOpen && G.coaster){
+    if(livePlayers().length && livePlayers().every(p=>dist(G.coaster.x,G.coaster.y,p.x,p.y) < G.coaster.r)){
+      G.mode='escaping'; G.escaped=false;
+      toast('¡A la montaña rusa! Siguiente nivel...', 2);
+      SFX.win();
+      setTimeout(()=>{ if(G.mode==='escaping') levelClear(false); }, 700);
+      return;
+    }
+  }
+
   if(G.tut < 90) updateTutorial(dt);
 
-  // timer — always counting during collect (after a tiny grace)
+  // timer — solo cuenta durante 'collect' (se congela al completar la cuota)
   if(G.phase==='collect'){
     if(G.graceT > 0) G.graceT -= dt;
     else {
@@ -4550,7 +4808,7 @@ document.querySelectorAll('#ovChar .pc').forEach(b=>{
     if(b.dataset.dev){ selDevice = b.dataset.dev; syncCharToggles();
       document.getElementById('charHint').textContent = selDevice==='mobile'
         ? 'Modo celular: joystick para moverte, joystick derecho para apuntar y disparar, botón de salto.'
-        : 'Modo PC: 1 jug. = ratón para apuntar. 2 jug. = P1 con WASD+F, P2 con flechas + "." atacar y "/" saltar.';
+        : 'Modo PC: 1 jug. = ratón para apuntar. 2 jug. = P1 con WASD+F, P2 con FLECHAS + 5 atacar, 0 saltar, 1 interactuar.';
       return; }
     const n = +b.dataset.n;
     selPlayers = n;
