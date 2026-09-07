@@ -427,7 +427,7 @@ function newRun(){
     run: freshRun('cat'),           // jugador 1 (y banco compartido: tickets/bonusTime)
     run2: null,                     // jugador 2
     world:null, player:null, p2:null, cam:{x:0,y:0}, cam2:{x:0,y:0}, shake:0,
-    persuer:null, shopBuyer:1,
+    persuer:null, shopBuyer:1, wander:null, finale:null,
     lumins:[], monsters:[], shots:[], parts:[], pickups:[],
     worm:null, shop:null, coaster:null, machines:null,
     blackout:false, litFrac:0,
@@ -989,6 +989,11 @@ function drawPersuer(){
   ctx.restore();
 }
 
+function meleeWander(p, reach){
+  const wd = G.wander;
+  if(wd && !wd.dead && dist(p.x,p.y,wd.x,wd.y) < reach + 40){ wanderHit(2, p.x, p.y); return true; }
+  return false;
+}
 function persuerHit(p, reach){
   const pr = G.persuer;
   if(pr && !pr.dead && dist(p.x,p.y,pr.x,pr.y) < reach + 26){
@@ -1012,6 +1017,7 @@ function doAttack(p, dt, targets, bossHit, atk, atkHeld){
           if(dist(p.x,p.y,m.x,m.y) < reach + (m.r||16)) damageTarget(m, 2, p.x, p.y, 300, bossHit); }
         const b = G.boss;
         if(b && b.isBoss && !b.dead && !b.hidden && bossHit && dist(p.x,p.y,b.x,b.y) < reach + b.r) bossHit(b, 2, p.x, p.y);
+        meleeWander(p, reach);
         persuerHit(p, reach);
       } else if(!p.flying){
         if(p.disguiseT>0){ /* ya disfrazado */ }
@@ -1060,6 +1066,7 @@ function doAttack(p, dt, targets, bossHit, atk, atkHeld){
       if(b && b.isBoss && !b.dead && !b.hidden && bossHit && dist(p.x,p.y,b.x,b.y) < reach + b.r){
         bossHit(b, 2, p.x, p.y); p.meat = Math.min(100, p.meat + 14); got = true;
       }
+      if(meleeWander(p, reach)){ p.meat = Math.min(100, p.meat + 14); got = true; }
       if(persuerHit(p, reach)){ p.meat = Math.min(100, p.meat + 10); got = true; }
       // sacar carne del OTRO jugador
       const other = (p===G.p2) ? G.player : G.p2;
@@ -1119,6 +1126,7 @@ function doAttack(p, dt, targets, bossHit, atk, atkHeld){
         if(da < arc + 0.4) bossHit(b, 2, p.x, p.y);
       }
     }
+    meleeWander(p, reach);
     persuerHit(p, reach);
     // hammer can swat projectiles
     for(const s of G.shots){
@@ -1340,6 +1348,7 @@ function updateMonsters(dt){
 function updateShots(dt){
   for(const s of G.shots){
     s.life -= dt;
+    if(s.grav) s.vy += s.grav*dt;
     s.x += s.vx*dt; s.y += s.vy*dt;
     if(s.friendly){
       for(const m of G.monsters){
@@ -1350,9 +1359,12 @@ function updateShots(dt){
           s.life = 0; break;
         }
       }
-      if(s.life>0 && G.boss && G.boss.isBoss && !G.boss.dead && dist(s.x,s.y,G.boss.x,G.boss.y) < G.boss.r + s.r){
+      if(s.life>0 && G.boss && G.boss.isBoss && !G.boss.dead && !G.boss.hidden && dist(s.x,s.y,G.boss.x,G.boss.y) < G.boss.r + s.r){
         if(G.bossHit) G.bossHit(G.boss, s.oneShot ? 3 : s.dmg, s.x, s.y);
         s.life = 0;
+      }
+      if(s.life>0 && G.wander && !G.wander.dead && dist(s.x,s.y,G.wander.x,G.wander.y) < 46 + s.r){
+        wanderHit(s.oneShot ? 3 : s.dmg, s.x, s.y); s.life = 0;
       }
       if(s.life>0 && G.persuer && !G.persuer.dead && dist(s.x,s.y,G.persuer.x,G.persuer.y) < 28 + s.r){
         G.persuer.hp -= (s.oneShot?3:1); G.persuer.hitFlash=0.15; spark(s.x,s.y,'#4fd98a',6); s.life=0;
@@ -2187,12 +2199,108 @@ function startBoss(L){
     G.boss.holes = []; for(let i=0;i<6;i++) G.boss.holes.push({ x:rand(200,G.world.w-200), y:rand(160,G.world.h-160) });
     G.boss.hidden = true; G.boss.hidT = 1.2; G.boss.aggro = 0;
   } else if(kind==='finale'){
-    buildArenaWorld('void', 1400, 1000);
-    G.boss = bossBase(G.world.w/2, 160, 46, 70, 'Wonder', 'finale');
+    buildArenaWorld('void', 1500, 1050);
+    G.boss = bossBase(G.world.w/2, 160, 46, 60, 'Wonder', 'finale');
     G.boss.form = 'wonder'; G.boss.formT = 2.6; G.boss.invT = 2.6;
+    G.boss.stage = 'p1';
+    G.wander = null; G.finale = { levers:[], door:null, weakT:0, kingT:0, king:null, banner:'' };
+    toast('FASE 1/4 — Derrota a Wonder.', 3.5);
   }
   G.bossHit = genericBossHit;
   bossIntro(G.boss.name);
+}
+/* ============================ FINALE — Wonder, 4 fases + interludios ============================ */
+const WALL_T = 46;
+function rebuildMansionWalls(){
+  const F = G.finale, w = G.world;
+  w.obs.length = F._baseObsLen;   // recorta a las paredes exteriores
+  const DOOR = 170;
+  for(const wl of F.walls){
+    const gaps = wl.open ? [[w.h/2 - DOOR/2, w.h/2 + DOOR/2]] : [];
+    emitWallSegments(w.obs, wl.x, WALL_T, 0, w.h, gaps, 'v');
+  }
+}
+function finaleNext(stage){
+  const b = G.boss; if(!b) return;
+  b.stage = stage;
+  b.dead = false; b.invT = 2; b.hitFlash = 0; b.state = 'idle'; b.cd = 2;
+  G.shots = []; G.monsters = []; G.parts = [];
+  const F = G.finale;
+  F.levers = []; F.door = null; F.weakT = 0; F.kingT = 0; F.king = null; F.p2cleared = false; F.walls = null; F.pits = null;
+
+  if(stage === 'mansion'){
+    // pasillo de 3 salas; Wander persigue; palancas abren la puerta de cada sala
+    const RW = 900, ROOMS = 3;
+    const w = { w: ROOMS*RW + WALL_T, h: 820, pad:0, obs:[], mood:'void', rooms:false };
+    G.world = w;
+    // paredes interiores entre salas: se guardan en F para dibujarlas con/sin puerta
+    F.walls = [];
+    for(let i=1;i<ROOMS;i++) F.walls.push({ x: i*RW, room:i-1, open:false });
+    // paredes exteriores (fijas)
+    emitWallSegments(w.obs, 0,        WALL_T, 0, w.h, [], 'v');
+    emitWallSegments(w.obs, ROOMS*RW, WALL_T, 0, w.h, [], 'v');
+    emitWallSegments(w.obs, 0,        WALL_T, 0, w.w, [], 'h');
+    emitWallSegments(w.obs, w.h-WALL_T, WALL_T, 0, w.w, [], 'h');
+    F._baseObsLen = w.obs.length;      // los muros de sala se re-generan cada vez que abre una puerta
+    F.roomIdx = 0; F.roomsTotal = ROOMS; F.roomW = RW;
+    // palancas: 2 por pared/sala
+    for(let r=0;r<ROOMS-1;r++)
+      for(let k=0;k<2;k++)
+        F.levers.push({ x: r*RW + WALL_T + 220 + k*420, y: (k? 150 : w.h-150), on:false, room:r });
+    rebuildMansionWalls();
+    spawnPlayers(140, w.h/2);
+    G.cam = camForPlayer(G.player); G.cam2 = {x:G.cam.x,y:G.cam.y};
+    G.wander = { x: 60, y: w.h/2, hp:999, maxhp:999, t:0, lunge:0, lungeCd:3, hitFlash:0, dead:false, kind:'wander', invuln:true };
+    b.hidden = true;   // Wonder no está en esta escena
+    bossBanner.txt = 'LA MANSIÓN — Wander te persigue'; bossBanner.t = 3;
+    toast('Activa las 2 palancas ('+(P2on()?'E/1':'E')+') de cada sala para abrir su puerta. ¡Corred!', 4.5);
+    SFX.transform(); G.flash = 1;
+  }
+  else if(stage === 'p2' || stage === 'p2hard'){
+    const hard = (stage === 'p2hard');
+    buildArenaWorld('void', 1500, 1050);
+    b.hidden = false; b.x = G.world.w*0.36; b.y = 200;
+    b.hp = b.maxhp = hard ? 40 : 30; b.form = 'wonder'; b.invT = 2;
+    G.wander = { x: G.world.w*0.64, y: 200, hp: hard?40:30, maxhp: hard?40:30, t:0, cd:2, hitFlash:0, dead:false, kind:'wander', invuln:true };
+    // 3 palancas: activarlas todas debilita a los dos un rato
+    for(let k=0;k<3;k++) F.levers.push({ x: 220 + k*(G.world.w-440)/2, y: G.world.h-120, on:false });
+    F.weakMax = hard ? 4.5 : 6;
+    F.hard = hard;
+    bossBanner.txt = hard ? 'FASE 3/4 — Wonder y Wander (difícil)' : 'FASE 2/4 — Wonder y Wander';
+    bossBanner.t = 3;
+    toast('Están blindados. Activa las 3 palancas para debilitarlos y dispararles.', 4.5);
+    SFX.boss(); G.flash = 0.8;
+  }
+  else if(stage === 'luminking'){
+    buildArenaWorld('void', 1600, 1150);
+    b.hidden = true; G.wander = null;
+    F.king = { x: 120, y: G.world.h/2, r: 96, t:0, lunge:0, lungeCd:2.6, hitFlash:0 };
+    F.kingT = 15;
+    bossBanner.txt = 'EL REY LUMIN'; bossBanner.t = 3;
+    toast('El REY LUMIN despierta: sacrificaste a los suyos. ¡SOBREVIVE 15 s!', 4.5);
+    SFX.scream(); G.flash = 1; G.shake = 24;
+  }
+  else if(stage === 'parkour'){
+    // carrera con huecos mientras Wonder y Wander lanzan pelotas de béisbol
+    const w = { w: 7200, h: 760, pad:0, obs:[], mood:'void', rooms:false };
+    G.world = w;
+    emitWallSegments(w.obs, 0, WALL_T, 0, w.w, [], 'h');
+    emitWallSegments(w.obs, w.h-WALL_T, WALL_T, 0, w.w, [], 'h');
+    const pits = [];
+    let px = 700;
+    while(px < w.w - 520){ const pw = rint(90, 150); pits.push({ x:px, w:pw }); px += pw + rint(230, 340); }
+    F.pits = pits;
+    F.exitX = w.w - 200;
+    spawnPlayers(120, w.h/2);
+    G.cam = camForPlayer(G.player); G.cam2 = {x:G.cam.x,y:G.cam.y};
+    // Wonder y Wander flotan arriba, siguiendo en X, lanzando pelotas
+    b.hidden = false; b.x = 120; b.y = 90; b.invT = 999;
+    G.wander = { x: 240, y: 90, hp:999, maxhp:999, t:0, cd:1.5, hitFlash:0, dead:false, kind:'wander', invuln:true };
+    F.ballCd = 1.4;
+    bossBanner.txt = 'FASE 4/4 — El último tramo'; bossBanner.t = 3;
+    toast('¡Parkour hasta la salida! Wonder y Wander lanzan pelotas de béisbol. Salta ('+(P2on()?'0 / ESPACIO':'ESPACIO')+').', 5);
+    SFX.boss(); G.flash = 0.7;
+  }
 }
 function bossBase(x,y,r,hp,name,kind){
   return { x, y, r, hp, maxhp:hp, name, kind, isBoss:true, dead:false, t:0,
@@ -2203,12 +2311,55 @@ let bossBanner = { txt:'', t:0 };
 function bossIntro(name){ bossBanner.txt = name; bossBanner.t = 2.6; }
 function genericBossHit(b, dmg, fx, fy){
   if(b.invT>0){ spark(fx,fy,'#fff',3); return; }
-  if(b.form==='wonder' && b.kind==='finale'){ spark(fx,fy,'#fff',3); return; }
+  // FINALE: solo se le pega en fase 1 (form nightmare) o en fases 2/3 debilitado
+  if(b.kind==='finale'){
+    if(b.stage==='p1'){
+      if(b.form==='wonder'){ spark(fx,fy,'#fff',3); return; }
+    } else if(b.stage==='p2' || b.stage==='p2hard'){
+      if(!(G.finale && G.finale.weakT>0)){ spark(fx,fy,'#8ab',3); return; }
+    } else { spark(fx,fy,'#fff',3); return; }   // mansion / king / parkour: intocable
+    b.hp -= dmg; b.hitFlash = 0.12; spark(fx,fy,C.blood,6); SFX.hit();
+    const a = ang(fx,fy,b.x,b.y); b.x += Math.cos(a)*3; b.y += Math.sin(a)*3;
+    if(b.stage==='p1') updateBossPhase(b);
+    if(b.hp<=0 && !b.dead) finaleBossDown(b);
+    return;
+  }
   if(b.kind==='worm' && !b.vulnerable){ spark(fx,fy,'#8ab',3); return; }
   b.hp -= dmg; b.hitFlash = 0.12; spark(fx,fy,C.blood,6); SFX.hit();
   const a = ang(fx,fy,b.x,b.y); b.x += Math.cos(a)*4; b.y += Math.sin(a)*4;
+  if(b.hp<=0 && !b.dead){ b.dead=true; bossDefeated(b); return; }
   updateBossPhase(b);
-  if(b.hp<=0 && !b.dead){ b.dead=true; bossDefeated(b); }
+}
+function wanderHit(dmg, fx, fy){
+  const wd = G.wander;
+  if(!wd || wd.dead) return;
+  if(wd.invuln && !(G.finale && G.finale.weakT>0)){ spark(fx,fy,'#8ab',3); return; }
+  wd.hp -= dmg; wd.hitFlash = 0.12; spark(fx,fy,C.blood,6); SFX.hit();
+  if(wd.hp<=0 && !wd.dead){ wd.dead = true; burst(wd.x,wd.y,C.purple,26);
+    toast('¡Wander cae!', 1.6);
+    const b = G.boss;
+    if(b && b.dead){ finaleClearP2(b); }
+  }
+}
+function finaleBossDown(b){
+  b.dead = true; burst(b.x,b.y,C.gold,30); G.shake=14; SFX.win();
+  if(b.stage==='p1'){ toast('¡Wonder cae... pero se ríe!', 2.2);
+    setTimeout(()=>{ if(G.mode==='boss') finaleNext('mansion'); }, 1400); return; }
+  if(b.stage==='p2' || b.stage==='p2hard'){
+    toast('¡Wonder cae!', 1.6);
+    if(G.wander && G.wander.dead) finaleClearP2(b);
+  }
+}
+function finaleClearP2(b){
+  const F = G.finale;
+  if(F.p2cleared) return;
+  F.p2cleared = true;
+  const hard = (b.stage==='p2hard');
+  burst(b.x,b.y,C.gold,40); G.shake=18; SFX.win();
+  toast(hard ? '¡Otra vez caen! Pero aún no ha acabado...' : '¡Los dos caen! ...algo se remueve bajo el suelo.', 3);
+  setTimeout(()=>{ if(G.mode!=='boss') return;
+    finaleNext(hard ? 'parkour' : 'luminking');
+  }, 1400);
 }
 function updateBossPhase(b){
   const f = b.hp/b.maxhp;
@@ -2245,8 +2396,10 @@ function bossDefeated(b){
   burst(b.x,b.y,C.gold,40); G.shake=20; SFX.win(); musicMood='night';
   toast('¡'+b.name+' derrotado!', 2.4);
   const L = LEVELS[G.level];
+  const lvl = G.level;
   setTimeout(()=>{
     if(G.mode==='gameover') return;
+    if(G.level !== lvl || G.boss !== b) return;   // el nivel ya avanzó: clear obsoleto
     if(L && L.boss==='finale'){ startEnding(); }
     else levelClear(false, true);
   }, 1100);
@@ -2265,7 +2418,11 @@ function updateBoss(dt){
   b.t += dt; b.cd -= dt; b.invT -= dt; b.hitFlash -= dt; b.telegraph -= dt;
   if(b.formT>0){ b.formT -= dt; if(b.formT<=0 && (b.kind==='nightmare'||b.kind==='finale')) b.form='nightmare'; }
 
-  if(b.kind==='nightmare' || b.kind==='finale'){
+  if(b.kind==='finale'){
+    updateFinale(dt, b, p);
+    bossBanner.t -= dt;
+    return;
+  } else if(b.kind==='nightmare'){
     updateArenaBoss(dt, b, p);
   } else if(b.kind==='worm'){
     updateWormBoss(dt, b, p);
@@ -2333,6 +2490,221 @@ function updateArenaBoss(dt, b, p){
   if(b.form==='nightmare' && b.t - (b.lastFlip||0) > 9){
     b.lastFlip = b.t; b.form='wonder'; b.formT = 2; SFX.transform();
     toast('"¿Ya te cansaste, invitado?"', 1.6);
+  }
+}
+
+/* ---- FINALE: máquina de estados de las 4 fases ---- */
+function updateFinale(dt, b, p){
+  const F = G.finale;
+  if(F.weakT > 0) F.weakT -= dt;
+  switch(b.stage){
+    case 'p1':
+      updateArenaBoss(dt, b, p);
+      finaleContactBoss(b, 1);
+      break;
+    case 'mansion':  finaleMansion(dt); break;
+    case 'p2': case 'p2hard': finaleP2(dt, b, p); break;
+    case 'luminking': finaleKing(dt); break;
+    case 'parkour':  finaleParkour(dt); break;
+  }
+}
+function finaleContactBoss(b, dmg){
+  if(!b || b.dead || b.hidden) return;
+  for(const q of livePlayers())
+    if(dist(b.x,b.y,q.x,q.y) < b.r + q.r - 4 && q.invT<=0 && q.hopT<=0) hurtPlayer(dmg, b.x, b.y, q);
+}
+function finaleCamTrail(){
+  const ps = livePlayers();
+  if(!ps.length) return;
+  const trail = ps.reduce((a,c)=> c.x < a.x ? c : a, ps[0]);
+  const w = G.world;
+  G.cam.x = clamp(trail.x - VW*0.36, 0, Math.max(0, w.w-VW));
+  G.cam.y = clamp(w.h/2 - VH/2, 0, Math.max(0, w.h-VH));
+  if(w.h < VH) G.cam.y = (w.h-VH)/2;
+  G.cam2.x = G.cam.x; G.cam2.y = G.cam.y;
+}
+
+function finaleMansion(dt){
+  const F = G.finale, w = G.world, wd = G.wander;
+  updatePlayer(dt, { canAttack:false });
+  updateParts(dt);
+  finaleCamTrail();
+
+  // Wander persigue al jugador más rezagado
+  wd.t += dt; wd.lungeCd -= dt; wd.hitFlash -= dt;
+  const tgt = livePlayers().reduce((a,c)=> c.x < (a?a.x:1e9) ? c : a, null) || G.player;
+  const a = ang(wd.x, wd.y, tgt.x, tgt.y);
+  let spd = 168 + G.level*2;
+  if(wd.lunge > 0){ wd.lunge -= dt; spd = 430; }
+  else if(wd.lungeCd <= 0 && dist(wd.x,wd.y,tgt.x,tgt.y) < 320){ wd.lunge = 0.4; wd.lungeCd = 3.4; SFX.scream(); }
+  wd.x = clamp(wd.x + Math.cos(a)*spd*dt, 20, w.w-20);
+  wd.y = clamp(wd.y + Math.sin(a)*spd*dt, 60, w.h-60);
+  if(chance(0.3)) spark(wd.x+rand(-16,16), wd.y+rand(-20,10), C.purple, 1);
+  for(const q of livePlayers())
+    if(dist(wd.x,wd.y,q.x,q.y) < 30 + q.r && q.invT<=0){
+      hurtPlayer(1, wd.x, wd.y, q);
+      const k = ang(wd.x,wd.y,q.x,q.y); q.vx += Math.cos(k)*300; q.vy += Math.sin(k)*300;
+      wd.lunge = 0; wd.lungeCd = 3;
+    }
+
+  // palancas de la sala actual
+  for(const lv of F.levers){
+    if(lv.on || lv.room !== F.roomIdx) continue;
+    if(interactorNear(lv.x, lv.y, 46)){
+      lv.on = true; SFX.bell(); spark(lv.x, lv.y, C.gold, 14); G.shake = 5;
+      const left = F.levers.filter(l=>l.room===F.roomIdx && !l.on).length;
+      if(left === 0){
+        F.walls[F.roomIdx].open = true; rebuildMansionWalls();
+        SFX.win(); toast('¡Puerta abierta! A la siguiente sala.', 2);
+        F.roomIdx++;
+        if(F.roomIdx >= F.roomsTotal-1){
+          bossBanner.txt = '¡Última sala!'; bossBanner.t = 2;
+        }
+      } else toast('Palanca '+ (2-left) +'/2', 1.4);
+    }
+  }
+  // llegar a la última sala completa la mansión
+  if(F.roomIdx >= F.roomsTotal-1){
+    const lastX = (F.roomsTotal-1)*F.roomW + WALL_T;
+    if(livePlayers().length && livePlayers().every(q=>q.x > lastX + 120)){
+      toast('Wander se detiene en la puerta. Delante... Wonder te espera.', 3);
+      setTimeout(()=>{ if(G.mode==='boss') finaleNext('p2'); }, 900);
+      F.roomIdx = 99;   // evita repetir
+    }
+  }
+}
+
+function finaleP2(dt, b, p){
+  const F = G.finale, wd = G.wander, hard = F.hard;
+  updatePlayer(dt, { canAttack:true, bossHit:genericBossHit });
+  updateShots(dt); updateParts(dt); updateMonsters(dt);
+  camFollow(dt);
+  wd.t += dt; wd.cd -= dt; wd.hitFlash -= dt;
+  const weak = F.weakT > 0;
+
+  const drift = (e, ex, ey, speed)=>{
+    const tp = nearestPlayer(e.x, e.y);
+    const ta = ang(e.x, e.y, tp.x, tp.y);
+    const s = weak ? speed*0.4 : speed;
+    e.x = clamp(e.x + Math.cos(ta)*s*dt + Math.cos(e.t*0.8)*20*dt, 90, G.world.w-90);
+    e.y = clamp(e.y + Math.sin(ta)*s*dt*0.5 + Math.sin(e.t*1.1)*14*dt, 110, G.world.h*0.55);
+  };
+  if(!b.dead) drift(b, 0,0, hard?70:52);
+  if(!wd.dead) drift(wd, 0,0, hard?66:48);
+
+  // ataques (solo cuando NO están debilitados y no muertos)
+  const shoot = (e, kind)=>{
+    if(e.dead || weak || e.cd>0) return;
+    e.cd = (hard?1.0:1.5) + Math.random()*0.5;
+    const tp = nearestPlayer(e.x,e.y);
+    if(kind==='fan'){
+      const n = hard? 14 : 10;
+      for(let i=0;i<n;i++){ const a=(i/n)*6.283 + e.t;
+        G.shots.push({ x:e.x, y:e.y, vx:Math.cos(a)*(190+ (hard?60:0)), vy:Math.sin(a)*(190+(hard?60:0)), r:7, life:3.4, dmg:1, friendly:false }); }
+    } else {
+      for(let i=-2;i<=2;i++){ const a=ang(e.x,e.y,tp.x,tp.y)+i*0.15;
+        G.shots.push({ x:e.x, y:e.y, vx:Math.cos(a)*(300+(hard?70:0)), vy:Math.sin(a)*(300+(hard?70:0)), r:6, life:3.4, dmg:1, friendly:false }); }
+    }
+    SFX.shoot();
+  };
+  shoot(b, 'aim'); shoot(wd, 'fan');
+
+  // contacto
+  finaleContactBoss(b, 1);
+  if(!wd.dead) for(const q of livePlayers())
+    if(dist(wd.x,wd.y,q.x,q.y) < 42 + q.r && q.invT<=0 && q.hopT<=0) hurtPlayer(1, wd.x, wd.y, q);
+
+  // palancas: las 3 -> ventana de debilidad
+  if(!weak){
+    let allOn = F.levers.length>0;
+    for(const lv of F.levers){
+      if(!lv.on && interactorNear(lv.x, lv.y, 46)){
+        lv.on = true; SFX.bell(); spark(lv.x,lv.y,C.lumin,12); G.shake=5;
+        const left = F.levers.filter(l=>!l.on).length;
+        toast(left>0 ? ('Palanca '+(F.levers.length-left)+'/'+F.levers.length) : '', left>0?1.4:0.1);
+      }
+      if(!lv.on) allOn = false;
+    }
+    if(allOn){
+      F.weakT = F.weakMax;
+      for(const lv of F.levers) lv.on = false;
+      SFX.transform(); G.flash = 0.6; G.shake = 10;
+      toast('¡DEBILITADOS! ¡Disparad ahora!', 2.4);
+    }
+  }
+}
+
+function finaleKing(dt){
+  const F = G.finale, k = F.king, w = G.world;
+  updatePlayer(dt, { canAttack:false });
+  updateParts(dt);
+  finaleCamTrail();
+  F.kingT -= dt;
+  k.t += dt; k.lungeCd -= dt; k.hitFlash -= dt;
+  const tgt = nearestPlayer(k.x, k.y);
+  const a = ang(k.x, k.y, tgt.x, tgt.y);
+  let spd = 150 + G.level*2 + (15 - F.kingT)*4;
+  if(k.lunge > 0){ k.lunge -= dt; spd = 520; }
+  else if(k.lungeCd <= 0 && dist(k.x,k.y,tgt.x,tgt.y) < 380){ k.lunge = 0.5; k.lungeCd = 2.4; SFX.scream(); G.shake = 6; }
+  k.x = clamp(k.x + Math.cos(a)*spd*dt, 40, w.w-40);
+  k.y = clamp(k.y + Math.sin(a)*spd*dt, 100, w.h-100);
+  if(chance(0.5)) spark(k.x+rand(-40,40), k.y+rand(-40,40), '#5fe39a', 1);
+  for(const q of livePlayers())
+    if(dist(k.x,k.y,q.x,q.y) < k.r + q.r - 10 && q.invT<=0){
+      hurtPlayer(1, k.x, k.y, q);
+      const kk = ang(k.x,k.y,q.x,q.y); q.vx += Math.cos(kk)*420; q.vy += Math.sin(kk)*420;
+      k.lunge = 0; k.lungeCd = 2.6;
+    }
+  if(F.kingT <= 0){
+    burst(k.x,k.y,'#5fe39a',50); G.shake = 20; SFX.win();
+    toast('El Rey Lumin se hunde en el suelo. Pero Wonder y Wander vuelven...', 3.2);
+    setTimeout(()=>{ if(G.mode==='boss') finaleNext('p2hard'); }, 1200);
+    F.kingT = 999;   // evita repetir
+  }
+}
+
+function finaleParkour(dt){
+  const F = G.finale, w = G.world, b = G.boss, wd = G.wander;
+  updatePlayer(dt, { canAttack:false });
+  updateShots(dt); updateParts(dt);
+  finaleCamTrail();
+
+  // huecos
+  for(const q of livePlayers()){
+    let overPit = null;
+    for(const pit of F.pits) if(q.x > pit.x-4 && q.x < pit.x+pit.w+4) overPit = pit;
+    const air = q.z>=6 || q.hopT>0 || (q.char==='meowl' && q.flying) || (q.char==='baby' && Math.hypot(q.vx,q.vy)>210);
+    if(overPit && !air && q.invT<=0){
+      hurtPlayer(1, q.x, q.y+40, q);
+      q.x = overPit.x - 56; q.y = w.h/2; q.vx = 0; q.vy = 0;
+      toast(pLabel(q)+'¡Al vacío!', 1.4);
+    }
+  }
+
+  // Wonder y Wander flotan arriba siguiendo en X, lanzando pelotas de béisbol
+  b.t += dt; wd.t += dt;
+  const lead = livePlayers().reduce((a,c)=> c.x > (a?a.x:-1e9) ? c : a, null) || G.player;
+  b.x = lerp(b.x, clamp(lead.x - 120, 100, w.w-100), 1-Math.pow(0.02,dt));  b.y = 90;
+  wd.x = lerp(wd.x, clamp(lead.x + 120, 100, w.w-100), 1-Math.pow(0.02,dt)); wd.y = 90;
+  F.ballCd -= dt;
+  if(F.ballCd <= 0){
+    F.ballCd = 0.85 + Math.random()*0.5;
+    for(const e of [b, wd]){
+      const tp = nearestPlayer(e.x, e.y);
+      const dx = tp.x - e.x, t = 0.9;
+      const vx = dx / t;
+      const vy = -180;   // arco
+      G.shots.push({ x:e.x, y:e.y+20, vx, vy, grav:560, r:10, life:4, dmg:1, friendly:false, baseball:true });
+    }
+    SFX.shoot();
+  }
+
+  // llegar a la salida
+  if(livePlayers().length && livePlayers().every(q=>q.x > F.exitX)){
+    G.escaped = true; toast('¡Lo lograste!', 2);
+    SFX.win(); G.flash = 1;
+    setTimeout(()=>{ if(G.mode==='boss') startEnding(); }, 900);
+    F.exitX = 1e9;
   }
 }
 
@@ -2535,7 +2907,8 @@ function updateCoasterBoss(dt){
   g.enemies = g.enemies.filter(e=>!e.gone);
   if(g.boss && g.boss.gone){
     g.boss = null; g.done = true; bossBanner.t = 0;
-    setTimeout(()=>{ if(G.mode!=='gameover') levelClear(false,true); }, 900);
+    const lvl = G.level;
+    setTimeout(()=>{ if(G.mode!=='gameover' && G.level===lvl) levelClear(false,true); }, 900);
     return;
   }
 
@@ -2571,6 +2944,7 @@ function startLevel(idx){
   G.phase = 'collect'; G.escaped = false;
   G.puzzle = null; G.boss = null; G.bossHit = null; G.coasterGame = null;
   G.chase = null; G.serverGame = null; G.mash = null; G.machines = null;
+  G.wander = null; G.finale = null;
   G.puzzlePods = null; G.exitOpen = false; G.exitHintT = 0;
   G.blackout = false; G.litFrac = 0;
   bossBanner.t = 0;
@@ -2617,6 +2991,8 @@ function startLevel(idx){
 
 function levelClear(fromChase, fromBoss){
   if(G.mode==='gameover' || G.mode==='credits' || G.mode==='cut') return;
+  // guard: si ya empezó un jefe nuevo (o el nivel avanzó), este clear es obsoleto
+  if(G.mode==='boss' && G.boss && !G.boss.dead) return;
   hidePanels();
   G.mode = 'shop';
   clearOnce();
@@ -4032,7 +4408,36 @@ function drawHUDShared(){
   }
 
   // boss health bar (arena bosses)
-  if(G.mode==='boss' && G.boss && G.boss.isBoss && !G.boss.dead && !(LEVELS[G.level]&&LEVELS[G.level].boss==='coaster')){
+  if(G.mode==='boss' && G.boss && G.boss.kind==='finale'){
+    const b = G.boss, F = G.finale;
+    ctx.textAlign='center';
+    const label = { p1:'FASE 1/4 · Wonder', mansion:'LA MANSIÓN · Wander persigue',
+      p2:'FASE 2/4 · Wonder y Wander', luminking:'EL REY LUMIN', p2hard:'FASE 3/4 · Wonder y Wander (difícil)',
+      parkour:'FASE 4/4 · a la salida' }[b.stage] || '';
+    ctx.fillStyle='#0d0720cc'; roundRect(VW/2-190,12,380,26,7); ctx.fill();
+    ctx.fillStyle=C.gold; ctx.font="700 13px Bungee, sans-serif"; ctx.fillText(label, VW/2, 30);
+    if(b.stage==='p1' && !b.dead) drawBossBar('Wonder', b.hp/b.maxhp);
+    if((b.stage==='p2'||b.stage==='p2hard')){
+      const bw=Math.min(230, VW/2-30);
+      const bar=(x,nm,fr,dead)=>{ ctx.fillStyle='#0d0720cc'; roundRect(x-4,VH-44,bw+8,28,7); ctx.fill();
+        ctx.fillStyle=dead?'#333':C.blood; roundRect(x,VH-40,bw*clamp(fr,0,1),16,4); ctx.fill();
+        ctx.strokeStyle=C.gold; ctx.lineWidth=2; roundRect(x,VH-40,bw,16,4); ctx.stroke();
+        ctx.fillStyle=C.cream; ctx.font="700 11px Bungee"; ctx.fillText(dead?nm+' ✗':nm, x+bw/2, VH-24); };
+      bar(VW/2-bw-8, 'Wonder', b.hp/b.maxhp, b.dead);
+      bar(VW/2+8, 'Wander', G.wander? G.wander.hp/G.wander.maxhp : 0, !G.wander||G.wander.dead);
+      if(F.weakT>0){ ctx.fillStyle='#4fd98a'; ctx.font="700 14px Bungee";
+        ctx.fillText('¡DÉBILES!  '+F.weakT.toFixed(1)+'s', VW/2, VH-56); }
+    }
+    if(b.stage==='luminking' && F.kingT<900){
+      ctx.fillStyle=C.blood; ctx.font="700 20px Bungee, sans-serif";
+      ctx.fillText('SOBREVIVE  '+Math.max(0,Math.ceil(F.kingT))+'s', VW/2, VH-30);
+    }
+    if(b.stage==='parkour'){
+      ctx.fillStyle=C.gold; ctx.font="700 13px Bungee, sans-serif";
+      ctx.fillText('¡Corre y salta a la salida!', VW/2, VH-26);
+    }
+  }
+  else if(G.mode==='boss' && G.boss && G.boss.isBoss && !G.boss.dead && !(LEVELS[G.level]&&LEVELS[G.level].boss==='coaster')){
     drawBossBar(G.boss.name, G.boss.hp/G.boss.maxhp);
   }
   if(G.mode==='boss' && LEVELS[G.level] && LEVELS[G.level].boss==='coaster' && G.coasterGame){
@@ -4066,7 +4471,8 @@ function drawHUDShared(){
   }
 }
 function drawMinimap(){
-  if(!G.world || !(G.mode==='play' || G.mode==='chase' || G.mode==='escaping')) return;
+  const finaleNav = G.mode==='boss' && G.boss && G.boss.kind==='finale' && (G.boss.stage==='mansion'||G.boss.stage==='parkour');
+  if(!G.world || !(G.mode==='play' || G.mode==='chase' || G.mode==='escaping' || finaleNav)) return;
   const w = G.world;
   const mw = 178, mh = Math.round(mw * (w.h / w.w));
   const mx = VW - mw - 8;                 // pegado a la esquina derecha
@@ -4159,6 +4565,14 @@ function anyPlayerNear(x,y,rad){
 }
 function getPrompt(){
   const K = P2on() ? '[E/1]' : '[E]';
+  if(G.mode==='boss' && G.boss && G.boss.kind==='finale' && G.finale){
+    for(const lv of G.finale.levers){
+      if(lv.on) continue;
+      if(G.boss.stage==='mansion' && lv.room!==G.finale.roomIdx) continue;
+      if(anyPlayerNear(lv.x, lv.y, 46)) return K+' Activar palanca';
+    }
+    return '';
+  }
   if(G.mode==='chase' && G.chase && !G.chase.escapeReady){
     for(const p of livePlayers()){
       const n = nearestNode(p);
@@ -4318,12 +4732,64 @@ function drawWorldScene(dim, paneMode){
     drawList.push({ y:pl.y, fn:()=>{ ctx.save(); ctx.translate(-cam.x,-cam.y); drawPlayer(pl); ctx.restore(); } });
   if(G.persuer && !G.persuer.dead)
     drawList.push({ y:G.persuer.y, fn:()=>{ drawPersuer(); } });
-  if(G.boss && (G.boss.kind==='nightmare'||G.boss.kind==='finale'))
+  if(G.boss && G.boss.kind==='nightmare')
     drawList.push({ y:G.boss.y, fn:()=>{ ctx.save(); ctx.translate(-cam.x,-cam.y);
-      drawWonder(G.boss.x, G.boss.y, 1.6 + (G.boss.kind==='finale'?0.5:0), G.boss.form!=='wonder');
+      drawWonder(G.boss.x, G.boss.y, 1.6, G.boss.form!=='wonder');
       if(G.boss.invT>0||G.boss.hitFlash>0){ ctx.globalCompositeOperation='source-atop'; ctx.fillStyle='#ffffff88';
         ctx.fillRect(G.boss.x-80,G.boss.y-120,160,220); }
       ctx.restore(); } });
+  if(G.boss && G.boss.kind==='finale'){
+    const b = G.boss, F = G.finale;
+    const weak = F && F.weakT>0;
+    // palancas
+    if(F) for(const lv of F.levers){
+      if(b.stage==='mansion' && lv.room!==F.roomIdx && !lv.on) continue;
+      drawList.push({ y:lv.y, fn:()=>{ ctx.save(); ctx.translate(lv.x-cam.x, lv.y-cam.y);
+        ctx.fillStyle='rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.ellipse(0,16,16,6,0,0,7); ctx.fill();
+        ctx.fillStyle='#2a2438'; ctx.fillRect(-6,-4,12,20);
+        ctx.strokeStyle= lv.on ? C.lumin : C.gold; ctx.lineWidth=5; ctx.lineCap='round';
+        ctx.beginPath(); ctx.moveTo(0,-2); ctx.lineTo(lv.on? 12 : -12, -18); ctx.stroke();
+        ctx.fillStyle= lv.on ? C.lumin : C.gold; ctx.beginPath(); ctx.arc(lv.on?12:-12,-18,5,0,7); ctx.fill();
+        ctx.fillStyle=C.cream; ctx.font="700 8px Bungee"; ctx.textAlign='center'; ctx.fillText(lv.on?'ON':'OFF', 0, 32);
+        ctx.restore(); } });
+    }
+    // Lumin King
+    if(F && F.king){ const k=F.king;
+      drawList.push({ y:k.y, fn:()=>{ ctx.save(); ctx.translate(k.x-cam.x, k.y-cam.y);
+        const fl = k.hitFlash>0;
+        const g=ctx.createRadialGradient(0,0,10,0,0,140);
+        g.addColorStop(0,'rgba(95,227,154,0.5)'); g.addColorStop(1,'rgba(95,227,154,0)');
+        ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,140,0,7); ctx.fill();
+        ctx.fillStyle= fl ? '#fff' : (k.lunge>0 ? '#c0563f' : '#4fd98a');
+        ctx.beginPath(); ctx.moveTo(-56,54);
+        ctx.quadraticCurveTo(-84,-70,-30,-84); ctx.quadraticCurveTo(0,-100,30,-84);
+        ctx.quadraticCurveTo(84,-70,56,54); ctx.quadraticCurveTo(0,72,-56,54); ctx.fill();
+        // corona
+        ctx.fillStyle=C.gold;
+        for(let i=-2;i<=2;i++){ ctx.beginPath(); ctx.moveTo(i*22,-84); ctx.lineTo(i*22-8,-108); ctx.lineTo(i*22+8,-108); ctx.fill(); }
+        // ojos furiosos
+        ctx.fillStyle=C.ink;
+        ctx.save(); ctx.rotate(0.2); ctx.beginPath(); ctx.ellipse(-18,-20,7,10,0,0,7); ctx.fill(); ctx.restore();
+        ctx.save(); ctx.rotate(-0.2); ctx.beginPath(); ctx.ellipse(18,-20,7,10,0,0,7); ctx.fill(); ctx.restore();
+        ctx.strokeStyle=C.ink; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(0,10,14,0.2,Math.PI-0.2); ctx.stroke();
+        ctx.restore(); } });
+    }
+    // Wonder
+    if(!b.hidden) drawList.push({ y:b.y, fn:()=>{ ctx.save(); ctx.translate(-cam.x,-cam.y);
+      if(weak){ ctx.globalAlpha = 0.55 + 0.25*Math.sin(G.t*10); }
+      drawWonder(b.x, b.y, (b.stage==='parkour')?1.3:2.0, b.form!=='wonder' || weak);
+      if(b.hitFlash>0){ ctx.globalCompositeOperation='source-atop'; ctx.fillStyle='#ffffffaa'; ctx.fillRect(b.x-90,b.y-150,180,260); }
+      ctx.restore(); } });
+    // Wander
+    if(G.wander && !G.wander.dead){ const wd=G.wander;
+      drawList.push({ y:wd.y, fn:()=>{ ctx.save(); ctx.translate(-cam.x,-cam.y);
+        if(weak && wd.invuln!==false){ ctx.globalAlpha = 0.55 + 0.25*Math.sin(G.t*10+1); }
+        if(wd.lunge>0) ctx.globalAlpha *= 0.9;
+        drawWander(wd.x, wd.y, (b.stage==='parkour')?1.15:1.5);
+        if(wd.hitFlash>0){ ctx.globalCompositeOperation='source-atop'; ctx.fillStyle='#ffffffaa'; ctx.fillRect(wd.x-80,wd.y-140,160,240); }
+        ctx.restore(); } });
+    }
+  }
   if(G.boss && G.boss.kind==='worm' && !G.boss.hidden)
     drawList.push({ y:G.boss.y, fn:()=>{ ctx.save(); ctx.translate(-cam.x,-cam.y);
       drawWormBoss(G.boss); ctx.restore(); } });
@@ -4359,7 +4825,32 @@ function drawWorldScene(dim, paneMode){
 
   // shots + particles (screen from world)
   ctx.save(); ctx.translate(-cam.x,-cam.y);
+  // huecos del parkour final (en el suelo)
+  if(G.boss && G.boss.kind==='finale' && G.finale && G.finale.pits){
+    for(const pit of G.finale.pits){
+      ctx.fillStyle='#040407'; ctx.fillRect(pit.x, 0, pit.w, G.world.h);
+      ctx.strokeStyle='#c8912e'; ctx.lineWidth=3;
+      ctx.beginPath(); ctx.moveTo(pit.x, 120); ctx.lineTo(pit.x, G.world.h-120);
+      ctx.moveTo(pit.x+pit.w, 120); ctx.lineTo(pit.x+pit.w, G.world.h-120); ctx.stroke();
+    }
+    if(G.finale.exitX < 1e8){
+      const ex = G.finale.exitX;
+      ctx.fillStyle='#0a1a12'; ctx.fillRect(ex-8, G.world.h/2-90, 60, 180);
+      ctx.fillStyle= (Math.sin(G.t*5)>0) ? '#4fd98a' : '#2a5a44'; ctx.fillRect(ex, G.world.h/2-72, 40, 144);
+      ctx.fillStyle=C.cream; ctx.font="700 14px Bungee, sans-serif"; ctx.textAlign='center';
+      ctx.fillText('SALIDA', ex+20, G.world.h/2-80);
+    }
+  }
   for(const s of G.shots){
+    if(s.baseball){
+      ctx.save(); ctx.translate(s.x,s.y); ctx.rotate(s.x*0.05);
+      ctx.fillStyle='#f2efe6'; ctx.beginPath(); ctx.arc(0,0,s.r,0,7); ctx.fill();
+      ctx.strokeStyle='#c8384a'; ctx.lineWidth=1.4;
+      ctx.beginPath(); ctx.arc(-s.r*0.5,0,s.r*1.3, -0.8, 0.8); ctx.stroke();
+      ctx.beginPath(); ctx.arc(s.r*0.5,0,s.r*1.3, Math.PI-0.8, Math.PI+0.8); ctx.stroke();
+      ctx.restore();
+      continue;
+    }
     ctx.fillStyle = s.friendly ? C.gold : (s.goo ? '#8fd94a' : C.blood);
     ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,7); ctx.fill();
     if(!s.friendly){ ctx.fillStyle='#ffffff55'; ctx.beginPath(); ctx.arc(s.x,s.y,s.r*0.4,0,7); ctx.fill(); }
