@@ -3985,23 +3985,38 @@ function drawHUDShared(){
 function drawMinimap(){
   if(!G.world || !(G.mode==='play' || G.mode==='chase' || G.mode==='escaping')) return;
   const w = G.world;
-  const mw = 150, mh = Math.round(mw * (w.h / w.w));
+  const mw = 178, mh = Math.round(mw * (w.h / w.w));
   const mx = VW - mw - 8;                 // pegado a la esquina derecha
   const my = P2on() ? 100 : 46;           // debajo del HUD de P2 en 2 jugadores
   const sx = mw / w.w, sy = mh / w.h;
   const P = (wx,wy)=>[mx + wx*sx, my + wy*sy];
   ctx.save();
-  ctx.fillStyle = 'rgba(8,6,16,0.82)';
+  ctx.fillStyle = 'rgba(8,6,16,0.92)';
   roundRect(mx-4, my-4, mw+8, mh+8, 4); ctx.fill();
-  ctx.strokeStyle = 'rgba(202,191,166,0.35)'; ctx.lineWidth = 1.5;
+  ctx.strokeStyle = 'rgba(202,191,166,0.45)'; ctx.lineWidth = 1.5;
   roundRect(mx-4, my-4, mw+8, mh+8, 4); ctx.stroke();
   ctx.beginPath(); ctx.rect(mx,my,mw,mh); ctx.clip();
-  ctx.fillStyle = 'rgba(30,24,42,0.6)'; ctx.fillRect(mx,my,mw,mh);
+  ctx.fillStyle = G.blackout ? 'rgba(20,16,30,0.85)' : 'rgba(30,24,42,0.6)'; ctx.fillRect(mx,my,mw,mh);
+
+  // obstáculos (paredes / puestos / decorado)
+  ctx.fillStyle = 'rgba(176,166,190,0.55)';
+  for(const o of w.obs){
+    const [ox,oy]=P(o.x,o.y);
+    ctx.fillRect(ox, oy, Math.max(2, o.w*sx), Math.max(2, o.h*sy));
+  }
 
   // uncollected lumins (los SUPER, más grandes y dorados)
   for(const l of G.lumins){ if(l.taken) continue; const [x,y]=P(l.x,l.y);
-    if(l.super){ ctx.fillStyle='#f0c85a'; ctx.fillRect(x-2,y-2,4,4); }
-    else { ctx.fillStyle='rgba(79,217,138,0.5)'; ctx.fillRect(x-1,y-1,2,2); } }
+    if(l.super){ ctx.fillStyle='#f0c85a'; ctx.fillRect(x-2.5,y-2.5,5,5); }
+    else { ctx.fillStyle='#5fe39a'; ctx.fillRect(x-1.5,y-1.5,3,3); } }
+
+  // monstruos (puntos rojos; el payaso-caja parpadea)
+  for(const m of G.monsters){ if(m.dead) continue;
+    const [x,y]=P(m.x,m.y);
+    const scary = (m.type==='jackbox' && m.state==='scary') || m.state==='dash' || m.state==='lunge';
+    ctx.fillStyle = scary ? '#ff5a6a' : '#c8384a';
+    ctx.beginPath(); ctx.arc(x, y, scary?3.4:2.6, 0, 7); ctx.fill();
+  }
 
   const glyph = (wx,wy,txt,col)=>{ const [x,y]=P(wx,wy);
     ctx.fillStyle='rgba(10,6,18,0.85)'; ctx.beginPath(); ctx.arc(x,y,8,0,7); ctx.fill();
@@ -4128,7 +4143,9 @@ function renderPane(vx, vy, vw, vh, focusP, cam){
   ctx.translate(vx, vy);
   VW = vw; VH = vh;
   G.cam = cam;
+  G._paneFocus = focusP || null;
   drawWorldScene(false, true);
+  G._paneFocus = null;
   VW = sV; VH = sH; G.cam = sCam;
   ctx.restore();
 }
@@ -4321,40 +4338,27 @@ function drawWorldScene(dim, paneMode){
   const mc = moodColors(G.world.mood);
   // "se va la luz" SOLO en el nivel del apagón (blackout). El resto con luz normal.
   if(G.blackout && G.player){
-    let rad = (120 + G.litFrac*300) * (1 + 0.05*Math.sin(G.t*7));
-    const ps = livePlayers();
-    if(ps.length <= 1){
-      const pl = ps[0] || G.player;
-      const sx = pl.x - cam.x, sy = pl.y - cam.y;
-      const lg = ctx.createRadialGradient(sx,sy, rad*0.15, sx,sy, rad);
-      lg.addColorStop(0,'rgba(6,4,12,0)');
-      lg.addColorStop(0.6,'rgba(6,4,12,0.30)');
-      lg.addColorStop(1, 'rgba(3,2,7,0.985)');
-      ctx.fillStyle=lg; ctx.fillRect(0,0,VW,VH);
-    } else {
-      // dos jugadores en pantalla compartida: capa oscura + agujeros
-      ctx.save();
-      ctx.fillStyle='rgba(3,2,7,0.985)'; ctx.fillRect(0,0,VW,VH);
-      ctx.globalCompositeOperation='destination-out';
-      for(const pl of ps){
-        const sx = pl.x - cam.x, sy = pl.y - cam.y;
-        const hg = ctx.createRadialGradient(sx,sy, rad*0.15, sx,sy, rad);
-        hg.addColorStop(0,'rgba(0,0,0,1)');
-        hg.addColorStop(0.6,'rgba(0,0,0,0.7)');
-        hg.addColorStop(1,'rgba(0,0,0,0)');
-        ctx.fillStyle=hg; ctx.fillRect(0,0,VW,VH);
-      }
-      ctx.restore();
-    }
-    // additive glow from lit machines
+    // linterna: empieza decente y crece al encender máquinas
+    const rad = (250 + G.litFrac*430) * (1 + 0.04*Math.sin(G.t*7));
+    // un solo foco de luz: el jugador de esta mitad (o el jugador 1)
+    const lightP = G._paneFocus || G.player;
+    const sx = lightP.x - cam.x, sy = lightP.y - cam.y;
+    const lg = ctx.createRadialGradient(sx,sy, rad*0.16, sx,sy, rad);
+    lg.addColorStop(0,'rgba(5,4,11,0)');
+    lg.addColorStop(0.5,'rgba(5,4,11,0.30)');
+    lg.addColorStop(1,'rgba(4,3,9,0.90)');
+    ctx.fillStyle=lg; ctx.fillRect(0,0,VW,VH);
+    // brillo verde aditivo de las máquinas encendidas (ilumina su zona)
     if(G.machines){ for(const m of G.machines){ if(!m.lit) continue;
       const mx=m.x-cam.x, my=m.y-cam.y;
-      const gl=ctx.createRadialGradient(mx,my,8,mx,my,190);
-      gl.addColorStop(0,'rgba(120,200,140,0.22)'); gl.addColorStop(1,'rgba(120,200,140,0)');
-      ctx.fillStyle=gl; ctx.beginPath(); ctx.arc(mx,my,190,0,7); ctx.fill();
+      const gl=ctx.createRadialGradient(mx,my,8,mx,my,260);
+      gl.addColorStop(0,'rgba(120,210,150,0.42)');
+      gl.addColorStop(0.5,'rgba(120,210,150,0.14)');
+      gl.addColorStop(1,'rgba(120,210,150,0)');
+      ctx.fillStyle=gl; ctx.beginPath(); ctx.arc(mx,my,260,0,7); ctx.fill();
     }}
   }
-  drawVignette(G.blackout ? mc.vig : Math.min(mc.vig, 0.5));
+  drawVignette(G.blackout ? 0.4 : Math.min(mc.vig, 0.5));
   if(G.flash>0){ ctx.fillStyle='rgba(158,31,44,'+clamp(G.flash,0,0.62)+')'; ctx.fillRect(0,0,VW,VH); }
 
   if(paneMode) return;
