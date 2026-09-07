@@ -573,92 +573,148 @@ function tryMove(e, nx, ny){
   if(!solidCircle(e.x, ny, e.r)) e.y = ny;
 }
 
+function emitWallSegments(obs, linePos, thick, from, to, gaps, dir){
+  gaps.sort((a,b)=>a[0]-b[0]);
+  let cur = from;
+  const push = (s,e)=>{ if(e-s < 6) return;
+    if(dir==='v') obs.push({ x:linePos, y:s, w:thick, h:e-s, kind:'wall' });
+    else obs.push({ x:s, y:linePos, w:e-s, h:thick, kind:'wall' }); };
+  for(const [g0,g1] of gaps){ push(cur, g0); cur = Math.max(cur, g1); }
+  push(cur, to);
+}
 function buildCollectWorld(L){
-  const w = { w:3400, h:2600, pad:40, obs:[], mood:L.mood };
+  // ===== MAPA DE HABITACIONES: cuadrícula de cuartos con paredes, puertas y callejones sin salida =====
+  const COLS = 4, ROWS = 3, CELL = 812, WALL = 46, DOOR = 156;
+  const RW = CELL - WALL, RH = CELL - WALL;
+  const w = { w: COLS*CELL + WALL, h: ROWS*CELL + WALL, pad: 0, obs: [], mood: L.mood, rooms:true, COLS, ROWS, CELL, WALL };
   G.world = w;
-  // scattered decor obstacles
-  const zones=[]; // keep-clear
-  const wormPos = { x:w.w*0.5, y:360 };
-  const shopPos = { x:w.w*0.5 + 330, y:520 };   // la tienda de Wonder, junto al Gusano
-  const coasterPos = { x:w.w-300, y:w.h-300 };
-  const spawn = { x:w.w*0.5, y:w.h*0.52 };
-  zones.push({x:wormPos.x,y:wormPos.y,r:300},{x:shopPos.x,y:shopPos.y,r:180},
-    {x:coasterPos.x,y:coasterPos.y,r:240},{x:spawn.x,y:spawn.y,r:260});
-  // pods de puzzle repartidos por el mapa (opcionales -> Super Lumin)
-  const podPos = [
-    { x:w.w*0.16, y:w.h*0.20 }, { x:w.w*0.84, y:w.h*0.24 },
-    { x:w.w*0.20, y:w.h*0.82 },
-  ];
+  const rc = (r,c)=>({ x: c*CELL + WALL + RW/2, y: r*CELL + WALL + RH/2 });
+  const rBounds = (r,c)=>({ x0:c*CELL+WALL, y0:r*CELL+WALL, x1:(c+1)*CELL, y1:(r+1)*CELL });
+  const kk = (r,c)=> r*COLS + c;
+
+  // --- conectividad: árbol de expansión + puertas extra (para bucles y callejones) ---
+  const parent = {}; for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) parent[kk(r,c)] = kk(r,c);
+  const find = a => { while(parent[a]!==a){ parent[a]=parent[parent[a]]; a=parent[a]; } return a; };
+  const edges = [];
+  for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){
+    if(c+1<COLS) edges.push({ a:[r,c], b:[r,c+1], dir:'h' });
+    if(r+1<ROWS) edges.push({ a:[r,c], b:[r+1,c], dir:'v' });
+  }
+  edges.sort(()=>Math.random()-0.5);
+  const doors = [];
+  for(const e of edges){
+    const ka=kk(e.a[0],e.a[1]), kb=kk(e.b[0],e.b[1]);
+    if(find(ka)!==find(kb)){ parent[find(ka)] = find(kb); doors.push(e); }
+  }
+  const extraChance = L.tut ? 0.6 : 0.3;
+  for(const e of edges){ if(doors.indexOf(e)<0 && Math.random()<extraChance) doors.push(e); }
+  const doorCount = {};
+  for(const e of doors){ doorCount[kk(e.a[0],e.a[1])]=(doorCount[kk(e.a[0],e.a[1])]||0)+1;
+    doorCount[kk(e.b[0],e.b[1])]=(doorCount[kk(e.b[0],e.b[1])]||0)+1; }
+
+  // --- paredes con huecos de puerta ---
+  for(let i=0;i<=COLS;i++){
+    const wx = i*CELL, gaps = [];
+    if(i>0 && i<COLS) for(const e of doors)
+      if(e.dir==='h' && e.a[1]===i-1 && e.b[1]===i){ const p=rc(e.a[0],i-1); gaps.push([p.y-DOOR/2, p.y+DOOR/2]); }
+    emitWallSegments(w.obs, wx, WALL, 0, w.h, gaps, 'v');
+  }
+  for(let j=0;j<=ROWS;j++){
+    const wy = j*CELL, gaps = [];
+    if(j>0 && j<ROWS) for(const e of doors)
+      if(e.dir==='v' && e.a[0]===j-1 && e.b[0]===j){ const p=rc(j-1,e.a[1]); gaps.push([p.x-DOOR/2, p.x+DOOR/2]); }
+    emitWallSegments(w.obs, wy, WALL, 0, w.w, gaps, 'h');
+  }
+
+  // --- cuartos clave ---
+  const spawnRC = [1, 1];
+  const wormRC  = [0, COLS-1];              // esquina superior derecha
+  const coasterRC = [ROWS-1, 0];            // esquina inferior izquierda
+  const spawn = rc(spawnRC[0], spawnRC[1]);
+  const wc = rc(wormRC[0], wormRC[1]);
+  const cc = rc(coasterRC[0], coasterRC[1]);
+  const wormPos  = { x: wc.x - 150, y: wc.y - 10 };
+  const shopPos  = { x: wc.x + 175, y: wc.y + 30 };   // la tienda, en el mismo cuarto que el Gusano
+  const coasterPos = { x: cc.x, y: cc.y };
+
+  spawnPlayers(spawn.x, spawn.y);
+  G.cam = camForPlayer(G.player); G.cam2 = P2on() ? camForPlayer(G.p2) : {x:G.cam.x,y:G.cam.y};
+  G.shop = { x:shopPos.x, y:shopPos.y, r:84 };
+  G.coaster = { x:coasterPos.x, y:coasterPos.y, r:110 };
+  G.exitOpen = false; G.exitHintT = 0;
+
+  // cuartos que NO son clave, ordenados por "aislamiento" (callejones sin salida primero)
+  const otherRooms = [];
+  for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){
+    if((r===spawnRC[0]&&c===spawnRC[1]) || (r===wormRC[0]&&c===wormRC[1]) || (r===coasterRC[0]&&c===coasterRC[1])) continue;
+    otherRooms.push({ r, c, dc: doorCount[kk(r,c)]||0, ...rc(r,c) });
+  }
+  otherRooms.sort((a,b)=> a.dc - b.dc);   // pocos accesos = callejón
+
+  // --- pods de puzzle en callejones sin salida ---
   const nPods = L.tut ? 1 : (2 + (Math.random()<0.5?1:0));
-  for(const pp of podPos.slice(0, nPods)) zones.push({ x:pp.x, y:pp.y, r:140 });
-  const kinds=['tent','ballpit','planter','crate','sign'];
-  let tries=0;
-  while(w.obs.length < 18 && tries<400){
-    tries++;
-    const bw = rint(120,300), bh = rint(110,240);
-    const x = rint(w.pad+40, w.w-w.pad-bw-40), y = rint(w.pad+40, w.h-w.pad-bh-40);
-    const cx=x+bw/2, cy=y+bh/2;
-    let ok=true;
-    for(const z of zones) if(dist(cx,cy,z.x,z.y) < z.r+Math.max(bw,bh)/2){ ok=false; break; }
-    for(const o of w.obs) if(x < o.x+o.w+70 && x+bw > o.x-70 && y < o.y+o.h+70 && y+bh > o.y-70){ ok=false; break; }
-    if(ok){
+  G.puzzlePods = [];
+  if(!L.blackout){
+    for(let i=0;i<nPods && i<otherRooms.length;i++){
+      const rm = otherRooms[i];
+      G.puzzlePods.push({ x: rm.x + rand(-60,60), y: rm.y + rand(-60,60), done:false, t:rand(0,6) });
+    }
+  }
+
+  // --- decoración: 0-2 muebles pequeños por cuarto (sin tapar puertas ni el spawn) ---
+  const kinds = ['crate','planter','sign','ballpit'];
+  for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){
+    if(r===spawnRC[0] && c===spawnRC[1]) continue;
+    const b = rBounds(r,c);
+    const n = rint(0,2);
+    for(let k=0;k<n;k++){
+      const bw = rint(70,150), bh = rint(70,140);
+      let x, y, g=0, ok=false;
+      while(g++<20){
+        x = rint(b.x0+70, b.x1-bw-70); y = rint(b.y0+70, b.y1-bh-70);
+        ok = !solidCircle(x+bw/2, y+bh/2, Math.max(bw,bh)/2 + 20);
+        if(ok) break;
+      }
+      if(!ok) continue;
       const kind = pick(kinds);
-      const o = {x,y,w:bw,h:bh,kind};
+      const o = { x, y, w:bw, h:bh, kind };
       if(kind==='ballpit'){ o.balls=[];
-        for(let i=0;i<14;i++) o.balls.push({ x:rand(10,bw-10), y:rand(10,bh-10),
-          c:pick(['#f6b823','#d21f3c','#3bf089','#7a3fb0','#fff']) }); }
+        for(let i=0;i<10;i++) o.balls.push({ x:rand(10,bw-10), y:rand(10,bh-10), c:pick(['#f6b823','#d21f3c','#3bf089','#7a3fb0','#fff']) }); }
       w.obs.push(o);
     }
   }
 
-  spawnPlayers(spawn.x, spawn.y);
-  G.cam = camForPlayer(G.player); G.cam2 = P2on() ? camForPlayer(G.p2) : {x:G.cam.x,y:G.cam.y};
-  G.shop = { x:shopPos.x, y:shopPos.y, r:90 };
-  G.coaster = { x:coasterPos.x, y:coasterPos.y, r:120 };
-  G.exitOpen = false; G.exitHintT = 0;
-
-  // pods de puzzle: resuélvelos para soltar un SUPER Lumin (x10). No obligatorios.
-  G.puzzlePods = [];
-  if(!L.blackout){
-    for(const pp of podPos.slice(0, nPods)){
-      let x = clamp(pp.x, w.pad+80, w.w-w.pad-80), y = clamp(pp.y, w.pad+80, w.h-w.pad-80);
-      let g=0; while(solidCircle(x,y,30) && g<30){ x=clamp(pp.x+rand(-120,120),w.pad+80,w.w-w.pad-80); y=clamp(pp.y+rand(-120,120),w.pad+80,w.h-w.pad-80); g++; }
-      G.puzzlePods.push({ x, y, done:false, t:rand(0,6) });
-    }
-  }
-
   if(L.blackout){
-    // power stations instead of a worm
     G.worm = null;
     G.machines = [];
-    const spots = [
-      { x:w.w*0.22, y:w.h*0.24 }, { x:w.w*0.78, y:w.h*0.22 },
-      { x:w.w*0.25, y:w.h*0.78 }, { x:w.w*0.75, y:w.h*0.76 },
-      { x:w.w*0.5,  y:w.h*0.5 }, { x:w.w*0.5, y:w.h*0.18 },
-    ];
-    for(let i=0;i<(L.machines||4);i++){
-      G.machines.push({ x:spots[i].x, y:spots[i].y, r:36, need:3, fed:0, lit:false, spark:0 });
-    }
+    // una máquina en varios cuartos distintos
+    const mrooms = otherRooms.slice().sort(()=>Math.random()-0.5).slice(0, L.machines||4);
+    for(const rm of mrooms) G.machines.push({ x: rm.x + rand(-50,50), y: rm.y + rand(-50,50), r:36, need:3, fed:0, lit:false, spark:0 });
     G.quota = (L.machines||4)*3; G.given = 0;
   } else {
     G.worm = { x:wormPos.x, y:wormPos.y, r:120, mouth:0, mood:0, talk:0 };
     G.machines = null;
   }
 
-  // lumins — a hard, limited amount: exactly what's needed plus a small buffer
+  // --- Lumins repartidos por los cuartos (más en los alejados / callejones) ---
   G.lumins = [];
   const total = Math.min(G.quota + 6, LUMIN_CAP + 6);
+  const roomPool = [];
+  otherRooms.forEach((rm,idx)=>{ const weight = 1 + (otherRooms.length-idx); for(let k=0;k<weight;k++) roomPool.push(rm); });
+  roomPool.push({ ...spawn, r:spawnRC[0], c:spawnRC[1] });   // algunos cerca del spawn
   let lt=0;
-  while(G.lumins.length < total && lt<800){
+  while(G.lumins.length < total && lt<1200){
     lt++;
-    const x = rint(w.pad+60, w.w-w.pad-60), y = rint(w.pad+60, w.h-w.pad-60);
-    if(solidCircle(x,y,26)) continue;
-    if(dist(x,y,spawn.x,spawn.y) < 240) continue;
-    if(G.worm && dist(x,y,wormPos.x,wormPos.y) < 200) continue;
-    if(dist(x,y,shopPos.x,shopPos.y) < 130) continue;
-    if(G.machines && G.machines.some(m=>dist(x,y,m.x,m.y)<120)) continue;
-    if(G.puzzlePods && G.puzzlePods.some(pd=>dist(x,y,pd.x,pd.y)<110)) continue;
-    let near=false; for(const l of G.lumins) if(dist(x,y,l.x,l.y)<150){near=true;break;}
+    const rm = pick(roomPool);
+    const b = rBounds(rm.r, rm.c);
+    const x = rint(b.x0+40, b.x1-40), y = rint(b.y0+40, b.y1-40);
+    if(solidCircle(x,y,24)) continue;
+    if(dist(x,y,spawn.x,spawn.y) < 150) continue;
+    if(G.worm && dist(x,y,wormPos.x,wormPos.y) < 150) continue;
+    if(dist(x,y,shopPos.x,shopPos.y) < 110) continue;
+    if(G.machines && G.machines.some(m=>dist(x,y,m.x,m.y)<110)) continue;
+    if(G.puzzlePods && G.puzzlePods.some(pd=>dist(x,y,pd.x,pd.y)<100)) continue;
+    let near=false; for(const l of G.lumins) if(dist(x,y,l.x,l.y)<120){near=true;break;}
     if(near) continue;
     G.lumins.push({ x, y, phase:rand(0,7), hop:0, taken:false, scared:0 });
   }
@@ -666,10 +722,14 @@ function buildCollectWorld(L){
   G.monsters = []; G.shots = []; G.parts = []; G.pickups = [];
   if(!L.tut){
     (L.monsters||[]).forEach(type=>{
-      let x,y,g=0;
-      do{ x=rint(w.pad+80,w.w-w.pad-80); y=rint(w.pad+80,w.h-w.pad-80); g++; }
-      while((solidCircle(x,y,24) || dist(x,y,spawn.x,spawn.y)<620) && g<50);
-      G.monsters.push(mkMonster(type,x,y));
+      let x,y,g=0,ok=false;
+      while(g++<60){
+        const rm = pick(otherRooms);
+        const b = rBounds(rm.r, rm.c);
+        x = rint(b.x0+60, b.x1-60); y = rint(b.y0+60, b.y1-60);
+        if(!solidCircle(x,y,24) && dist(x,y,spawn.x,spawn.y) > 500){ ok=true; break; }
+      }
+      if(ok) G.monsters.push(mkMonster(type,x,y));
     });
   }
 }
@@ -1632,15 +1692,26 @@ function startChase(){
   const w = G.world, p = G.player;
   // 4 ritual nodes, spread far across the map, away from the player
   const nodes = [];
-  const anchors = [
-    {x:w.w*0.18, y:w.h*0.20}, {x:w.w*0.82, y:w.h*0.20},
-    {x:w.w*0.18, y:w.h*0.80}, {x:w.w*0.82, y:w.h*0.80},
-    {x:w.w*0.5,  y:w.h*0.5}
-  ];
+  let anchors;
+  if(w.rooms){
+    // un tótem en el centro de 4 cuartos alejados del jugador
+    const CELL=w.CELL, WALL=w.WALL, RW=CELL-WALL;
+    const centers = [];
+    for(let r=0;r<w.ROWS;r++) for(let c=0;c<w.COLS;c++)
+      centers.push({ x: c*CELL+WALL+RW/2, y: r*CELL+WALL+RW/2 });
+    centers.sort((a,b)=> dist(b.x,b.y,p.x,p.y) - dist(a.x,a.y,p.x,p.y));
+    anchors = centers.slice(0, 4);
+  } else {
+    anchors = [
+      {x:w.w*0.18, y:w.h*0.20}, {x:w.w*0.82, y:w.h*0.20},
+      {x:w.w*0.18, y:w.h*0.80}, {x:w.w*0.82, y:w.h*0.80},
+      {x:w.w*0.5,  y:w.h*0.5}
+    ];
+  }
   for(const a of anchors){
     if(nodes.length>=4) break;
     let x=a.x, y=a.y, g=0;
-    while((solidCircle(x,y,26)) && g<40){ x=a.x+rand(-160,160); y=a.y+rand(-160,160); g++; }
+    while((solidCircle(x,y,26)) && g<60){ x=a.x+rand(-200,200); y=a.y+rand(-200,200); g++; }
     nodes.push({ x, y, done:false });
   }
   G.chase = {
@@ -3705,6 +3776,18 @@ function drawGround(){
 function drawObstacle(o){
   const x = o.x - G.cam.x, y = o.y - G.cam.y;
   ctx.save();
+  if(o.kind==='wall'){
+    const dark = G.blackout ? '#0e0b16' : '#191426';
+    ctx.fillStyle = dark; ctx.fillRect(x, y, o.w, o.h);
+    // moldura clara arriba/izquierda, sombra abajo/derecha (relieve)
+    ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fillRect(x, y, o.w, 3); ctx.fillRect(x, y, 3, o.h);
+    ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(x, y+o.h-4, o.w, 4); ctx.fillRect(x+o.w-4, y, 4, o.h);
+    // papel de pared rayado tenue
+    ctx.fillStyle = 'rgba(120,100,150,0.05)';
+    if(o.w > o.h){ for(let i=x+8; i<x+o.w-4; i+=22) ctx.fillRect(i, y+4, 2, o.h-8); }
+    else { for(let i=y+8; i<y+o.h-4; i+=22) ctx.fillRect(x+4, i, o.w-8, 2); }
+    ctx.restore(); return;
+  }
   ctx.fillStyle='rgba(0,0,0,0.4)'; ctx.fillRect(x+6,y+o.h-6,o.w,16);
   if(o.kind==='tent'){
     ctx.fillStyle = '#241a30'; ctx.fillRect(x,y+o.h*0.4,o.w,o.h*0.6);
@@ -4218,7 +4301,11 @@ function drawWorldScene(dim, paneMode){
   // obstacles behind
   const cam = G.cam;
   const drawList = [];
-  for(const o of G.world.obs) drawList.push({ y:o.y+o.h, fn:()=>drawObstacle(o) });
+  // paredes: se dibujan primero (son el plano del edificio), las entidades van encima
+  for(const o of G.world.obs){
+    if(o.kind==='wall') drawObstacle(o);
+    else drawList.push({ y:o.y+o.h, fn:()=>drawObstacle(o) });
+  }
   if(G.shop) drawList.push({ y:G.shop.y, fn:drawShopStall });
   if(G.coaster) drawList.push({ y:G.coaster.y, fn:drawCoaster });
   if(G.worm) drawList.push({ y:G.worm.y+70, fn:()=>{ ctx.save(); ctx.translate(-cam.x,-cam.y); drawWorm(G.worm); ctx.restore(); } });
