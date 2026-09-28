@@ -4,9 +4,14 @@ Página web con mis juegos.
 Sitio estático, desplegado en Vercel.
 
 ```
-index.html            → la portada (rejilla de juegos)
-wonderland/index.html  → Wonderland: El Coma (el juego, autónomo)
+index.html                 → la portada (rejilla de juegos + musiquita)
+wonderland/index.html       → Wonderland: El Coma (el juego, autónomo)
+super-easy-obby/index.html  → Super Easy Obby (el juego, autónomo)
 ```
+
+La portada tiene música chiptune hecha con WebAudio (sin archivos). Arranca con
+el primer clic (los navegadores bloquean el autoplay), se activa/desactiva con el
+botón de arriba o la tecla **M**, y recuerda la preferencia del visitante.
 
 Cada juego vive en su propia carpeta y se enlaza con una ruta relativa
 (`/wonderland/`), así que todo es público y no pide iniciar sesión.
