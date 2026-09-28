@@ -274,7 +274,7 @@
     <div class="panel">
       <div class="hub-head">
         <div><div class="eyebrow">Entre rondas</div><h2 id="hubTitle">Base segura</h2></div>
-        <div class="hub-coins mono">🪙 <span id="hubCoins">0</span> monedas</div>
+        <div class="hub-coins mono">💰 <span id="hubCoins">0</span> monedas</div>
       </div>
 
       <div class="hub-section">
@@ -2306,7 +2306,7 @@ function buildHubOnce(){
   SHOP_ITEMS.forEach(item=>{
     const row=document.createElement('div'); row.className='shop-item'; row.dataset.key=item.key;
     row.innerHTML = `<div><div class="si-name">${item.name}</div><div class="si-desc">${item.desc}</div></div>
-      <div class="si-buy"><span class="price">${item.base}</span> 🪙 <button class="buy">Comprar</button></div>`;
+      <div class="si-buy"><span class="price">${item.base}</span> 💰 <button class="buy">Comprar</button></div>`;
     row.querySelector('.buy').onclick=()=>buyItem(item);
     shopList.appendChild(row);
   });
