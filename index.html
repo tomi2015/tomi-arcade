@@ -173,6 +173,13 @@
   }
   .card:hover .poster .shine{transform:translateX(120%)}
 
+  .beta{
+    display:flex;align-items:center;gap:8px;
+    font-family:'DM Mono',monospace;font-size:11.5px;line-height:1.35;color:#ffd9a0;
+    background:repeating-linear-gradient(135deg,rgba(240,165,58,.14) 0 10px,rgba(240,165,58,.06) 10px 20px);
+    border:1px solid rgba(240,165,58,.45);border-radius:9px;padding:8px 11px;
+  }
+  .beta b{font-family:'Bungee',cursive;font-weight:400;font-size:11px;letter-spacing:.08em;color:#1c1204;background:var(--amber);border-radius:5px;padding:2px 6px}
   .card .body{padding:18px 20px 22px;display:flex;flex-direction:column;gap:12px;flex:1}
   .meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-family:'DM Mono',monospace;font-size:11.5px;color:var(--dim)}
   .meta .num{color:var(--dimmer)}
@@ -279,6 +286,7 @@
      theme  : { g1, g2, accent } colores de la pantallita
               (opcional: poster = cualquier "background" CSS)
      badge  : texto de la etiqueta de esquina, p. ej. "NUEVO" (opcional)
+     beta   : true si el juego está en beta (muestra el aviso de bugs)
 
    Guarda, haz commit y push:  Vercel lo publica solo.
    ============================================================ */
@@ -292,8 +300,22 @@ const GAMES = [
     url:   "/super-easy-obby/",
     motif: "🦉",
     badge: "NUEVO",
+    beta:  true,
     theme: { accent: "#4fe0f0",
              poster: "linear-gradient(135deg,#7ec8f5 0%,#bfe6ff 46%,#3a0a10 54%,#0d0204 100%)" }
+  },
+  {
+    title: "Super Easy Obby 3D",
+    sub:   "Prototipo · Parte 1",
+    tags:  ["obby", "3d", "plataformas", "en desarrollo"],
+    year:  2026,
+    desc:  "El obby feliz, ahora en 3D: salta entre plataformas de colores sobre un mar de lava, con Gubby, cámara libre y Meowl esperándote al final. Se juega con teclado y mouse.",
+    url:   "/super-easy-obby-3d/",
+    motif: "🧊",
+    badge: "PROTOTIPO 3D",
+    beta:  true,
+    theme: { accent: "#ffe14d",
+             poster: "linear-gradient(160deg,#3d9df0 0%,#9fd4f7 55%,#ff8a2a 56%,#b3260a 100%)" }
   },
   {
     title: "Wonderland: El Coma",
@@ -303,6 +325,7 @@ const GAMES = [
     desc:  "Tienes cáncer, entras en coma y despiertas en Wonderland: una feria en ruinas que no te deja salir. Recoge Lumins para el Gusano antes de que el reloj llegue a cero… o Wonder despierta.",
     url:   "/wonderland/",
     motif: "🎪",
+    beta:  true,
     theme: { g1: "#241436", g2: "#3a1420", accent: "#e8b24a" }
   },
 ];
@@ -334,6 +357,7 @@ GAMES.forEach((g, i) => {
         <span class="yr">${esc(g.year)}</span>
       </div>
       <h3>${esc(g.title)}</h3>
+      ${g.beta ? `<div class="beta"><b>BETA</b><span>🐞 Si ves algún bug, ¡repórtalo!</span></div>` : ''}
       <p>${esc(g.desc)}</p>
       <div class="tags">${(g.tags || []).map(t => `<span>${esc(t)}</span>`).join('')}</div>
       <a class="play" href="${esc(g.url)}" target="_blank" rel="noopener">Jugar ▶</a>

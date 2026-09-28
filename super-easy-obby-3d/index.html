@@ -1,0 +1,843 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Super Easy Obby 3D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=VT323&display=swap" rel="stylesheet">
+<style>
+  :root{--ink:#f4f6fb;--dim:#9aa6bd;--panel:rgba(14,18,28,.82);--line:rgba(255,255,255,.12);--cyan:#4fd6e8;--amber:#f0a53a;--pink:#ff5d8a}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden;background:#9fd4f7;color:var(--ink);font-family:'Fredoka',system-ui,sans-serif}
+  canvas#c{position:fixed;inset:0;width:100vw;height:100vh;display:block;outline:none}
+  .overlay{position:fixed;inset:0;display:grid;place-items:center;padding:16px;z-index:20;background:rgba(8,12,20,.45);backdrop-filter:blur(3px)}
+  .overlay[hidden],#hud[hidden],#dialogue[hidden]{display:none}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:28px 30px;max-width:520px;width:100%;text-align:center;box-shadow:0 24px 60px -20px rgba(0,0,0,.7)}
+  .eyebrow{font-family:'VT323',monospace;font-size:18px;letter-spacing:.2em;text-transform:uppercase;color:var(--amber)}
+  h1{font-size:clamp(32px,7vw,48px);line-height:1;margin:8px 0 6px;font-weight:700}
+  h1 span{color:var(--cyan)}
+  h2{font-size:30px;margin:6px 0 14px}
+  p.sub{color:var(--dim);font-size:15px;margin-bottom:18px}
+  .keys{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin:14px 0 20px}
+  .k{background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:10px;padding:7px 10px;font-size:12.5px;color:var(--dim)}
+  .k b{display:block;font-family:'VT323',monospace;font-size:18px;color:var(--cyan);font-weight:400;line-height:1}
+  button{font-family:'Fredoka',sans-serif;font-weight:600;font-size:16px;cursor:pointer;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.08);color:var(--ink);padding:11px 22px;transition:transform .1s,filter .15s}
+  button:hover{filter:brightness(1.15)} button:active{transform:translateY(2px)}
+  button.primary{background:linear-gradient(180deg,#6be6f4,#2fb5c9);color:#04252a;border-color:transparent;box-shadow:0 4px 0 #1b7482}
+  .btns{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+  .note{margin-top:16px;font-size:12.5px;color:var(--dim)}
+  .proto{display:inline-block;margin-top:4px;font-family:'VT323',monospace;font-size:16px;color:#1c1204;background:var(--amber);border-radius:6px;padding:0 8px}
+
+  #hud{position:fixed;inset:0;pointer-events:none;z-index:10}
+  .chips{position:absolute;top:14px;left:14px;display:flex;gap:8px;flex-wrap:wrap}
+  .chip{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:6px 13px;font-weight:600;font-size:15px}
+  #progress{position:absolute;top:18px;left:50%;transform:translateX(-50%);width:min(40vw,360px);height:12px;background:rgba(0,0,0,.35);border:1px solid var(--line);border-radius:99px}
+  #progress i{position:absolute;inset:0 auto 0 0;width:0;border-radius:99px;background:linear-gradient(90deg,#5ee07a,#4fc3ff)}
+  #progress em{position:absolute;right:-14px;top:50%;transform:translateY(-50%);font-style:normal;font-size:22px}
+  #pauseBtn{position:absolute;top:12px;right:14px;pointer-events:auto;padding:7px 13px;font-size:18px;background:var(--panel)}
+  #hint{position:absolute;left:50%;bottom:9vh;transform:translateX(-50%) translateY(10px);opacity:0;transition:opacity .35s,transform .35s;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px 18px;font-size:17px;font-weight:600;text-align:center;max-width:90vw}
+  #hint.show{opacity:1;transform:translateX(-50%)}
+  #hint kbd{font-family:'VT323',monospace;font-size:20px;color:var(--cyan);background:rgba(255,255,255,.08);border-radius:6px;padding:0 6px}
+  #toast{position:absolute;left:50%;top:22%;transform:translate(-50%,-10px);opacity:0;transition:opacity .3s,transform .3s;font-size:26px;font-weight:700;text-shadow:0 3px 0 rgba(0,0,0,.35);white-space:nowrap}
+  #toast.show{opacity:1;transform:translate(-50%,0)}
+  #lockHint{position:absolute;right:14px;bottom:14px;font-family:'VT323',monospace;font-size:17px;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:4px 10px}
+  #fade{position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity .35s;z-index:15}
+  #dialogue{position:fixed;left:50%;bottom:6vh;transform:translateX(-50%);z-index:16;width:min(640px,92vw);background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px 20px;cursor:pointer}
+  #dialogue .who{font-family:'VT323',monospace;font-size:20px;color:var(--amber)}
+  #dialogue .txt{font-size:19px;font-weight:500;min-height:1.5em}
+  #dialogue .next{font-family:'VT323',monospace;font-size:16px;color:var(--dim);text-align:right}
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js"}}</script>
+</head>
+<body>
+<canvas id="c" tabindex="0"></canvas>
+
+<div id="hud" hidden>
+  <div class="chips">
+    <div class="chip">🪙 <span id="coins">0</span></div>
+    <div class="chip">🚩 <span id="cps">0</span>/<span id="cpsMax">0</span></div>
+    <div class="chip">💀 <span id="deaths">0</span></div>
+  </div>
+  <div id="progress"><i id="progFill"></i><em>🦉</em></div>
+  <button id="pauseBtn" title="Pausa (P)">⏸</button>
+  <div id="hint"></div>
+  <div id="toast"></div>
+  <div id="lockHint">Clic para controlar la cámara con el mouse</div>
+</div>
+<div id="fade"></div>
+<div id="dialogue" hidden><div class="who">Meowl</div><div class="txt" id="dlgTxt"></div><div class="next">ESPACIO / clic ▸</div></div>
+
+<div id="titleScreen" class="overlay">
+  <div class="panel">
+    <div class="eyebrow">Tomi Arcade presenta</div>
+    <h1>SUPER EASY <span>OBBY 3D</span></h1>
+    <div class="proto">PROTOTIPO · PARTE 1</div>
+    <p class="sub" style="margin-top:12px">"Pan comido" — alguien, probablemente antes de conocer a Meowl</p>
+    <div class="keys">
+      <div class="k"><b>WASD / ←↑↓→</b>Moverse</div>
+      <div class="k"><b>MOUSE</b>Cámara</div>
+      <div class="k"><b>ESPACIO</b>Saltar</div>
+      <div class="k"><b>SHIFT</b>Correr</div>
+      <div class="k"><b>P / ESC</b>Pausa</div>
+    </div>
+    <button class="primary" id="startBtn">▶ Jugar</button>
+    <div class="note">Por ahora juegas con Gubby. Necesitas teclado y mouse.</div>
+  </div>
+</div>
+
+<div id="pauseOverlay" class="overlay" hidden>
+  <div class="panel">
+    <div class="eyebrow">Juego en pausa</div>
+    <h2>Pausado</h2>
+    <div class="btns" style="flex-direction:column;align-items:center">
+      <button class="primary" id="resumeBtn">▶ Reanudar</button>
+      <button id="restartBtn">↻ Reiniciar partida</button>
+      <button id="exitBtn">⌂ Volver al arcade</button>
+    </div>
+  </div>
+</div>
+
+<div id="endScreen" class="overlay" hidden>
+  <div class="panel">
+    <div class="eyebrow">Fin de la parte 1</div>
+    <h2>Continuará…</h2>
+    <p class="sub" id="endStats"></p>
+    <p class="sub">Próximamente en 3D: lo que Meowl esconde, el tablero de ajedrez y los monstruos.</p>
+    <div class="btns">
+      <button class="primary" id="againBtn">↻ Jugar otra vez</button>
+      <button id="homeBtn">⌂ Volver al arcade</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+
+// ---------- audio: small synth engine (buses + compressor, enveloped voices, scheduled music) ----------
+const Sound = (() => {
+  let actx=null, master=null, sfxBus=null, musicBus=null, noiseBuf=null;
+  function ensure(){
+    if(actx) return actx;
+    try{ actx = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ return null; }
+    const comp = actx.createDynamicsCompressor();
+    comp.threshold.value=-16; comp.knee.value=18; comp.ratio.value=4; comp.attack.value=0.004; comp.release.value=0.2;
+    master = actx.createGain(); master.gain.value=0.9;
+    sfxBus = actx.createGain(); sfxBus.gain.value=0.85;
+    musicBus = actx.createGain(); musicBus.gain.value=0.55;
+    sfxBus.connect(master); musicBus.connect(master); master.connect(comp); comp.connect(actx.destination);
+    noiseBuf = actx.createBuffer(1, actx.sampleRate*1.5, actx.sampleRate);
+    const d = noiseBuf.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
+    return actx;
+  }
+  // one enveloped oscillator voice; `at` is an offset in seconds from now (or an absolute time with abs:true)
+  function voice(o){
+    const a=ensure(); if(!a) return;
+    const t0 = o.abs ? o.at : a.currentTime+(o.at||0);
+    const dur=o.dur||0.2, atk=o.atk||0.005, vol=o.vol||0.15;
+    const osc=a.createOscillator(); osc.type=o.type||'sine';
+    osc.frequency.setValueAtTime(o.f, t0);
+    if(o.f2) osc.frequency.exponentialRampToValueAtTime(Math.max(20,o.f2), t0+(o.glide||dur));
+    if(o.detune) osc.detune.value=o.detune;
+    const g=a.createGain();
+    g.gain.setValueAtTime(0.0001,t0);
+    g.gain.exponentialRampToValueAtTime(vol, t0+atk);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0+dur);
+    let node=osc;
+    if(o.lp){ const f=a.createBiquadFilter(); f.type='lowpass'; f.frequency.value=o.lp; f.Q.value=o.q||0.7; node.connect(f); node=f; }
+    node.connect(g); g.connect(o.bus||sfxBus);
+    osc.start(t0); osc.stop(t0+dur+0.05);
+  }
+  function noise(o){
+    const a=ensure(); if(!a) return;
+    const t0 = o.abs ? o.at : a.currentTime+(o.at||0);
+    const dur=o.dur||0.2, vol=o.vol||0.12;
+    const src=a.createBufferSource(); src.buffer=noiseBuf;
+    const f=a.createBiquadFilter(); f.type=o.ft||'bandpass'; f.Q.value=o.q||1;
+    f.frequency.setValueAtTime(o.f||1000,t0);
+    if(o.f2) f.frequency.exponentialRampToValueAtTime(o.f2, t0+dur);
+    const g=a.createGain();
+    g.gain.setValueAtTime(0.0001,t0);
+    g.gain.exponentialRampToValueAtTime(vol, t0+(o.atk||0.004));
+    g.gain.exponentialRampToValueAtTime(0.0001, t0+dur);
+    src.connect(f); f.connect(g); g.connect(o.bus||sfxBus);
+    src.start(t0, Math.random()*0.5); src.stop(t0+dur+0.05);
+  }
+  // ---- happy chiptune for the intro obby: C–G–Am–F, scheduled ahead on the audio clock ----
+  const BPM=128, STEP=60/BPM/2; // eighth notes
+  const CHORDS=[[261.6,329.6,392],[196,246.9,293.7],[220,261.6,329.6],[174.6,220,261.6]];
+  const BASS=[130.8,98,110,87.3];
+  const MELODY=[ // 16 eighths per chord pair: scale degrees as Hz, 0 = rest
+    659.3,0,784,659.3, 523.3,0,587.3,659.3,  587.3,0,493.9,587.3, 784,0,587.3,0,
+    523.3,0,659.3,784, 880,0,784,659.3,      698.5,0,659.3,587.3, 523.3,0,0,0];
+  let music=null;
+  function scheduleMusic(){
+    const a=actx; if(!music||!a) return;
+    while(music.next < a.currentTime+0.12){
+      const st=music.step, t=music.next, bar=Math.floor(st/8)%4;
+      const m=MELODY[st%MELODY.length];
+      if(m) voice({abs:true,at:t,f:m,type:'square',dur:STEP*0.9,vol:0.045,lp:2600,bus:musicBus});
+      if(st%8===0) CHORDS[bar].forEach(f=>voice({abs:true,at:t,f,type:'triangle',dur:STEP*7.5,atk:0.02,vol:0.03,bus:musicBus}));
+      if(st%2===0) voice({abs:true,at:t,f:BASS[bar],type:'square',dur:STEP*1.6,vol:0.05,lp:500,bus:musicBus});
+      if(st%4===2) noise({abs:true,at:t,f:8000,ft:'highpass',dur:0.05,vol:0.03,bus:musicBus});
+      if(st%8===0) voice({abs:true,at:t,f:110,f2:45,type:'sine',dur:0.16,vol:0.12,bus:musicBus});
+      music.step++; music.next+=STEP;
+    }
+  }
+  return {
+    unlock(){ ensure(); if(actx && actx.state==='suspended') actx.resume(); },
+    setPaused(p){ if(!master) return; master.gain.setTargetAtTime(p?0.0001:0.9, actx.currentTime, 0.05); },
+    coin(){ voice({f:988,type:'square',dur:0.07,vol:0.08,lp:4000}); voice({at:0.06,f:1319,type:'square',dur:0.18,vol:0.08,lp:4000}); },
+    activate(){
+      [523.3,659.3,784,1046.5].forEach((f,i)=>voice({at:i*0.05,f,type:'triangle',dur:0.35,vol:0.09}));
+      noise({f:600,f2:5000,dur:0.35,vol:0.05,q:2});
+    },
+    hit(){ voice({f:150,f2:45,type:'sine',dur:0.22,vol:0.28}); noise({f:1800,f2:400,dur:0.12,vol:0.14,ft:'lowpass'}); },
+    jump(){ voice({f:330,f2:700,glide:0.09,type:'square',dur:0.12,vol:0.06,lp:3000}); },
+    ui(){ voice({f:880,type:'sine',dur:0.05,vol:0.06}); voice({at:0.02,f:1320,type:'sine',dur:0.04,vol:0.03}); },
+    scream(){
+      [0,-14,9].forEach(d=>voice({f:260,f2:55,glide:1.1,type:'sawtooth',dur:1.2,vol:0.09,detune:d,lp:2200}));
+      noise({f:2500,f2:300,dur:1.1,vol:0.14,q:0.6});
+    },
+    heal(){ [659.3,830.6,987.8,1318.5].forEach((f,i)=>voice({at:i*0.06,f,type:'sine',dur:0.5,vol:0.07})); noise({at:0.1,f:7000,ft:'highpass',dur:0.4,vol:0.025}); },
+    ability(){ voice({f:400,f2:1200,glide:0.18,type:'triangle',dur:0.25,vol:0.1}); noise({f:400,f2:3000,dur:0.22,vol:0.06,q:1.5}); },
+    parry(){ voice({f:1760,type:'triangle',dur:0.5,vol:0.1}); voice({f:2637,type:'sine',dur:0.35,vol:0.06}); noise({f:5000,ft:'highpass',dur:0.08,vol:0.12}); },
+    sword(){ noise({f:900,f2:4500,dur:0.2,vol:0.14,q:3}); voice({at:0.12,f:1480,type:'triangle',dur:0.3,vol:0.05}); },
+    spin(){ noise({f:300,f2:2400,dur:0.35,vol:0.12,q:2}); noise({at:0.15,f:2400,f2:400,dur:0.3,vol:0.08,q:2}); },
+    dash(){ noise({f:3000,f2:600,dur:0.25,vol:0.1,q:1.2}); voice({f:600,f2:300,type:'sine',dur:0.2,vol:0.05}); },
+    robot(){ [440,660,880,1320].forEach((f,i)=>voice({at:i*0.07,f,type:'square',dur:0.08,vol:0.05,lp:3000})); },
+    laser(){ voice({f:1800,f2:180,glide:0.3,type:'sawtooth',dur:0.32,vol:0.08,lp:5000}); voice({f:1810,f2:190,glide:0.3,type:'sawtooth',dur:0.32,vol:0.05,detune:20}); },
+    snack(){ voice({f:700,f2:1100,type:'triangle',dur:0.08,vol:0.08}); voice({at:0.07,f:900,f2:1400,type:'triangle',dur:0.1,vol:0.07}); },
+    warnTick(){ voice({f:220,type:'square',dur:0.12,vol:0.08,lp:900}); voice({f:110,type:'sine',dur:0.3,vol:0.12}); },
+    lava(){ noise({f:2500,ft:'highpass',dur:0.5,vol:0.12}); voice({f:120,f2:60,type:'sawtooth',dur:0.3,vol:0.08,lp:600}); },
+    startHappyLoop(){
+      if(!ensure() || music) return;
+      music={step:0,next:actx.currentTime+0.05};
+      music.timer=setInterval(scheduleMusic,25); scheduleMusic();
+    },
+    stopHappyLoop(){ if(music){ clearInterval(music.timer); music=null; } },
+    glitchPulse(){
+      for(let i=0;i<6;i++) voice({at:i*0.025,f:120+Math.random()*1400,type:'square',dur:0.03,vol:0.06});
+      noise({f:1400,dur:0.18,vol:0.12,q:0.8});
+    },
+    chaos(){
+      noise({f:200,f2:3000,dur:1.2,vol:0.2,q:0.5,atk:0.15});
+      [110,116.5,123.5,98,146.8].forEach((f,i)=>voice({at:i*0.06,f,type:'sawtooth',dur:1.0,vol:0.06,lp:1800,detune:i*7}));
+    },
+  };
+})();
+
+
+// =========================================================================
+// RENDERER / SCENE
+// =========================================================================
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.NeutralToneMapping;
+renderer.toneMappingExposure = 1.0;
+
+const SKY_LOW = 0xbfe6ff, SKY_TOP = 0x2f8ff0;
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(SKY_LOW, 70, 210);
+const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 600);
+function resize() {
+  renderer.setSize(innerWidth, innerHeight, false);
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize); resize();
+
+// sky dome: vertical gradient that follows the camera
+const sky = new THREE.Mesh(new THREE.SphereGeometry(450, 32, 16), new THREE.ShaderMaterial({
+  side: THREE.BackSide, depthWrite: false, fog: false,
+  uniforms: { top: { value: new THREE.Color(SKY_TOP) }, bottom: { value: new THREE.Color(SKY_LOW) } },
+  vertexShader: `varying vec3 vP; void main(){ vP=normalize(position); gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
+  fragmentShader: `uniform vec3 top; uniform vec3 bottom; varying vec3 vP;
+    void main(){ float h=clamp(pow(max(vP.y+0.08,0.),0.6)*1.6,0.,1.); gl_FragColor=vec4(mix(bottom,top,h),1.);
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+    }`
+}));
+scene.add(sky);
+
+scene.add(new THREE.HemisphereLight(0xd6ecff, 0xffb27a, 0.9));
+const sun = new THREE.DirectionalLight(0xfff1dc, 1.9);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -32, right: 32, top: 32, bottom: -32, near: 1, far: 140 });
+sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
+scene.add(sun, sun.target);
+
+// lava sea with an animated shader, fading into the sky haze at the horizon
+const LAVA_Y = -9;
+const lavaMat = new THREE.ShaderMaterial({
+  fog: false,
+  uniforms: { t: { value: 0 }, haze: { value: new THREE.Color(SKY_LOW) } },
+  vertexShader: `varying vec2 vW; varying float vD;
+    void main(){ vec4 w=modelMatrix*vec4(position,1.); vW=w.xz; vD=-(viewMatrix*w).z; gl_Position=projectionMatrix*viewMatrix*w; }`,
+  fragmentShader: `uniform float t; uniform vec3 haze; varying vec2 vW; varying float vD;
+    void main(){
+      vec2 p=vW*0.16;
+      float v=sin(p.x*1.7+t*0.9)+sin(p.y*1.3-t*0.7)+sin((p.x+p.y)*0.9+t*1.4)+sin(length(p*0.6)*2.0-t);
+      v*=0.25;
+      vec3 col=mix(vec3(0.7,0.08,0.02),vec3(1.0,0.42,0.04),smoothstep(-0.45,0.3,v));
+      col=mix(col,vec3(1.0,0.85,0.3),smoothstep(0.45,0.85,v));
+      col=mix(col,haze,smoothstep(90.,240.,vD));
+      gl_FragColor=vec4(col,1.);
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+    }`
+});
+const lava = new THREE.Mesh(new THREE.PlaneGeometry(1400, 1400), lavaMat);
+lava.rotation.x = -Math.PI / 2; lava.position.y = LAVA_Y;
+scene.add(lava);
+
+// =========================================================================
+// TOON MATERIALS + PRIMITIVE "PARTS" WITH BLACK OUTLINES
+// =========================================================================
+const toonRamp = new THREE.DataTexture(new Uint8Array([95, 170, 255]), 3, 1, THREE.RedFormat);
+toonRamp.minFilter = toonRamp.magFilter = THREE.NearestFilter; toonRamp.needsUpdate = true;
+const matCache = new Map();
+function toon(color) {
+  if (!matCache.has(color)) matCache.set(color, new THREE.MeshToonMaterial({ color, gradientMap: toonRamp }));
+  return matCache.get(color);
+}
+const outlineMat = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.BackSide });
+const basic = (color) => new THREE.MeshBasicMaterial({ color });
+// adds a mesh to `parent`; outline = inverted-hull shell scaled slightly bigger
+function part(geo, color, pos, parent, { outline = 1.07, shadow = true, mat } = {}) {
+  const m = new THREE.Mesh(geo, mat || toon(color));
+  m.position.set(pos[0], pos[1], pos[2]);
+  m.castShadow = shadow; m.receiveShadow = true;
+  if (outline) { const o = new THREE.Mesh(geo, outlineMat); o.scale.setScalar(outline); m.add(o); }
+  parent.add(m); return m;
+}
+const G = {
+  sphere: new THREE.SphereGeometry(1, 24, 16),
+  cone: new THREE.ConeGeometry(1, 1, 20),
+  cyl: new THREE.CylinderGeometry(1, 1, 1, 16),
+  box: new THREE.BoxGeometry(1, 1, 1),
+};
+
+// ---- Gubby: white quadruped with ears, dot eyes, line mouth and a fluffy tail (faces +Z) ----
+function makeGubby() {
+  const root = new THREE.Group(), body = new THREE.Group();
+  root.add(body);
+  const W = 0xf4f6f3;
+  const torso = part(G.sphere, W, [0, 0.5, 0], body); torso.scale.set(0.36, 0.3, 0.48);
+  const head = part(G.sphere, W, [0, 0.86, 0.34], body); head.scale.setScalar(0.3);
+  [-1, 1].forEach(sd => {
+    const ear = part(G.sphere, W, [sd * 0.14, 1.14, 0.3], body); ear.scale.set(0.085, 0.14, 0.05); ear.rotation.z = -sd * 0.25;
+    const inner = part(G.sphere, 0xf6c3c8, [sd * 0.14, 1.14, 0.335], body, { outline: 0, shadow: false }); inner.scale.set(0.045, 0.09, 0.02); inner.rotation.z = -sd * 0.25;
+    const eye = part(G.sphere, 0, [sd * 0.1, 0.9, 0.61], body, { outline: 0, shadow: false, mat: basic(0x1d201d) }); eye.scale.set(0.038, 0.045, 0.02);
+    const hl = part(G.sphere, 0, [sd * 0.1 - 0.012, 0.912, 0.628], body, { outline: 0, shadow: false, mat: basic(0xffffff) }); hl.scale.setScalar(0.012);
+    const cheek = part(G.sphere, 0, [sd * 0.19, 0.8, 0.55], body, { outline: 0, shadow: false, mat: new THREE.MeshBasicMaterial({ color: 0xff8fa3, transparent: true, opacity: 0.45 }) });
+    cheek.scale.set(0.05, 0.028, 0.01); cheek.rotation.y = sd * 0.5;
+  });
+  const mouth = part(G.box, 0, [0, 0.8, 0.635], body, { outline: 0, shadow: false, mat: basic(0x4b504a) }); mouth.scale.set(0.07, 0.012, 0.01);
+  [[0, 0.6, -0.46, 0.11], [0.05, 0.68, -0.52, 0.08], [-0.04, 0.66, -0.53, 0.075]].forEach(([x, y, z, r]) => { part(G.sphere, W, [x, y, z], body).scale.setScalar(r); });
+  const legs = [];
+  [[-0.17, 0.24], [0.17, 0.24], [-0.17, -0.24], [0.17, -0.24]].forEach(([x, z], i) => {
+    const pivot = new THREE.Group(); pivot.position.set(x, 0.34, z); body.add(pivot);
+    const leg = part(G.cyl, i < 2 ? W : 0xe3e8e2, [0, -0.17, 0], pivot); leg.scale.set(0.08, 0.34, 0.08);
+    legs.push(pivot);
+  });
+  root.userData = { body, legs, height: 1.2 };
+  return root;
+}
+
+// ---- Meowl: owl-cat, brown feathers, cream face disc, cat ears, big eyes (faces +Z) ----
+function makeMeowl() {
+  const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
+  const B = 0xc98f4e, WING = 0xa0692f, CREAM = 0xf6eedf;
+  const torso = part(G.sphere, B, [0, 0.95, 0], body); torso.scale.set(0.72, 0.8, 0.62);
+  const belly = part(G.sphere, 0xf0d9b2, [0, 0.82, 0.3], body); belly.scale.set(0.5, 0.55, 0.36);
+  for (let r = 0; r < 3; r++) for (let c = -1; c <= 1; c++) {
+    if (r === 2 && c !== 0) continue;
+    const ch = part(G.cone, 0, [c * 0.17 + (r % 2 ? 0.085 : 0), 1.02 - r * 0.2, 0.65 - Math.abs(c) * 0.04], body, { outline: 0, shadow: false, mat: basic(0xa36d35) });
+    ch.scale.set(0.05, 0.07, 0.015); ch.rotation.x = Math.PI;
+  }
+  const head = part(G.sphere, B, [0, 1.85, 0], body); head.scale.set(0.68, 0.6, 0.6);
+  const face = part(G.sphere, CREAM, [0, 1.82, 0.27], body); face.scale.set(0.56, 0.48, 0.38);
+  [-1, 1].forEach(sd => {
+    const ear = part(G.cone, B, [sd * 0.38, 2.42, 0], body); ear.scale.set(0.2, 0.46, 0.16); ear.rotation.z = -sd * 0.22;
+    const inner = part(G.cone, 0xf7b6bd, [sd * 0.37, 2.38, 0.08], body, { outline: 0, shadow: false }); inner.scale.set(0.11, 0.3, 0.05); inner.rotation.z = -sd * 0.22;
+    const eye = part(G.sphere, 0, [sd * 0.2, 1.86, 0.6], body, { outline: 0, shadow: false, mat: basic(0x24180d) }); eye.scale.set(0.095, 0.12, 0.05);
+    const hl = part(G.sphere, 0, [sd * 0.2 - 0.03, 1.9, 0.645], body, { outline: 0, shadow: false, mat: basic(0xffffff) }); hl.scale.setScalar(0.03);
+    const cheek = part(G.sphere, 0, [sd * 0.34, 1.7, 0.5], body, { outline: 0, shadow: false, mat: new THREE.MeshBasicMaterial({ color: 0xff8fa3, transparent: true, opacity: 0.45 }) });
+    cheek.scale.set(0.08, 0.045, 0.02); cheek.rotation.y = sd * 0.6;
+    const wing = part(G.sphere, WING, [sd * 0.7, 0.95, -0.05], body); wing.scale.set(0.2, 0.55, 0.45); wing.rotation.z = sd * 0.25;
+    [-0.08, 0, 0.08].forEach(dz => { const tl = part(G.cyl, 0xf0b455, [sd * 0.2 + dz * 0.4, 0.08, 0.2 + dz], body, { outline: 1.15 }); tl.scale.set(0.035, 0.18, 0.035); tl.rotation.x = 1.2; });
+    [-0.8, -0.5, -0.2].forEach((a, i) => { const w = part(G.box, 0, [sd * (0.62 + i * 0.03), 1.55 - i * 0.02, 0.55], body, { outline: 0, shadow: false, mat: basic(0x6b5a45) }); w.scale.set(0.3, 0.01, 0.01); w.rotation.z = sd * (a + 0.8) * 0.3; });
+  });
+  const beak = part(G.cone, 0xf0a24a, [0, 1.73, 0.66], body, { outline: 1.15 }); beak.scale.set(0.06, 0.1, 0.05); beak.rotation.x = Math.PI;
+  const brow = part(G.box, 0, [0, 2.12, 0.55], body, { outline: 0, shadow: false, mat: basic(0xa0692f) }); brow.scale.set(0.5, 0.025, 0.02);
+  root.userData = { body };
+  return root;
+}
+
+// =========================================================================
+// LEVEL: colorful floating platforms over lava, built as a sequence of sections
+// =========================================================================
+const PALETTE = [0xff5d73, 0xffb03a, 0xffe14d, 0x5ee07a, 0x4fc3ff, 0x9b7bff, 0xff7bd5, 0x3de0c8];
+let seed = 20260927;
+const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+const pick = (a) => a[Math.floor(rnd() * a.length)];
+
+const solids = [];      // {mesh, min, max, move?, delta}
+const coins = [];       // {mesh, taken}
+const checkpoints = []; // {pos, flag, cloth, reached}
+const hints = [];       // {z, html, shown}
+const level = new THREE.Group(); scene.add(level);
+
+function addPlatform(x, top, z, w, d, { color = pick(PALETTE), h = 1.1, move = null } = {}) {
+  const grp = new THREE.Group(); grp.position.set(x, top - h / 2, z); level.add(grp);
+  const base = new THREE.Mesh(G.box, toon(color)); base.scale.set(w, h, d); base.castShadow = base.receiveShadow = true; grp.add(base);
+  const lighter = new THREE.Color(color).lerp(new THREE.Color(0xffffff), 0.18).getHex();
+  const cap = new THREE.Mesh(G.box, toon(lighter)); cap.scale.set(w + 0.06, 0.16, d + 0.06); cap.position.y = h / 2 - 0.06; cap.receiveShadow = true; grp.add(cap);
+  const edge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(w + 0.07, h + 0.02, d + 0.07)), new THREE.LineBasicMaterial({ color: 0x1b1b24, transparent: true, opacity: 0.55 }));
+  grp.add(edge);
+  const s = { mesh: grp, half: new THREE.Vector3(w / 2, h / 2, d / 2), min: new THREE.Vector3(), max: new THREE.Vector3(), move, delta: new THREE.Vector3() };
+  if (move) { move.base = grp.position.clone(); move.phase = move.phase ?? rnd() * 6.28; grp.userData.arrow = true; }
+  syncBounds(s); solids.push(s); return s;
+}
+function syncBounds(s) { s.min.copy(s.mesh.position).sub(s.half); s.max.copy(s.mesh.position).add(s.half); }
+
+const coinGeo = new THREE.CylinderGeometry(0.28, 0.28, 0.07, 24);
+const coinMat = new THREE.MeshToonMaterial({ color: 0xffcf3a, gradientMap: toonRamp, emissive: 0x6a4400 });
+function addCoin(x, y, z) {
+  const m = new THREE.Mesh(coinGeo, coinMat); m.rotation.x = Math.PI / 2; m.position.set(x, y, z); m.castShadow = true;
+  const o = new THREE.Mesh(coinGeo, outlineMat); o.scale.setScalar(1.12); m.add(o);
+  level.add(m); coins.push({ mesh: m, taken: false, baseY: y });
+}
+function addCheckpoint(x, top, z) {
+  addPlatform(x, top, z, 5, 5, { color: 0x5ee07a });
+  const pole = part(G.cyl, 0xf4f6fb, [x + 1.8, top + 1.3, z], level); pole.scale.set(0.07, 2.6, 0.07);
+  const cloth = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.62, 8, 1), new THREE.MeshToonMaterial({ color: 0xff5d73, gradientMap: toonRamp, side: THREE.DoubleSide }));
+  cloth.position.set(x + 1.8 + 0.5, top + 2.25, z); cloth.castShadow = true; level.add(cloth);
+  checkpoints.push({ pos: new THREE.Vector3(x, top, z), cloth, reached: false });
+}
+
+// cursor walks the course toward -Z; `next(gap, rise, w, d, dx)` places the next platform
+const cur = { x: 0, y: 0, z: 0 };
+function next(gap, rise, w, d, dx = 0, opts = {}) {
+  cur.x += dx; cur.y += rise;
+  const cz = cur.z - gap - d / 2;
+  const s = addPlatform(cur.x, cur.y, cz, w, d, opts);
+  cur.z = cz - d / 2;
+  return s;
+}
+function cpNext(gap) { const cz = cur.z - gap - 2.5; addCheckpoint(cur.x, cur.y, cz); cur.z = cz - 2.5; }
+function hint(html) { hints.push({ z: cur.z + 1, html, shown: false }); }
+
+function buildLevel() {
+  addPlatform(0, 0, 0, 9, 9, { color: 0x4fc3ff }); cur.z = -4.5;
+  hints.push({ z: 99, html: 'Muévete con <kbd>WASD</kbd> · gira la cámara con el <kbd>mouse</kbd>', shown: false });
+  // 1. tiny gaps: just walk and hop
+  for (let i = 0; i < 3; i++) { next(1.2, 0, 4, 4, (i - 1) * 0.8); addCoin(cur.x, cur.y + 0.9, cur.z + 2); }
+  hint('Salta con <kbd>ESPACIO</kbd> — mantenlo para saltar más alto');
+  // 2. real jumps, going up
+  for (let i = 0; i < 4; i++) { next(2.6, 0.7, 3.2, 3.2, i % 2 ? 1.6 : -1.6); if (i % 2) addCoin(cur.x, cur.y + 0.9, cur.z + 1.6); }
+  // 3. staircase
+  for (let i = 0; i < 5; i++) next(0.9, 0.9, 2.6, 1.6);
+  cpNext(1.5);
+  hint('¡Punto de control! Si caes a la lava, vuelves a la última bandera 🚩');
+  // 4. sprint gap
+  next(1.5, 0, 4, 6);
+  hint('Mantén <kbd>SHIFT</kbd> para correr y salta el hueco grande');
+  next(5.6, 0, 4, 4); addCoin(cur.x, cur.y + 1.6, cur.z + 5.5);
+  // 5. zig-zag of narrow blocks
+  for (let i = 0; i < 6; i++) { next(1.8, (i % 3 === 2) ? 0.6 : 0, 1.8, 1.8, i % 2 ? 2.6 : -2.6); if (i === 3) addCoin(cur.x, cur.y + 0.9, cur.z + 0.9); }
+  next(1.6, 0, 4, 4);
+  hint('Las plataformas que se mueven te llevan encima. ¡Calcula el salto!');
+  // 6. moving platforms (side to side)
+  for (let i = 0; i < 4; i++) { next(2.2, 0, 3, 3, 0, { move: { axis: 'x', amp: 3.2, speed: 1.1 + i * 0.15, phase: i * 1.6 } }); }
+  cpNext(2.2);
+  // 7. long beam
+  hint('Camina con cuidado por la viga 😬');
+  next(1.2, 0, 0.9, 13); addCoin(cur.x, cur.y + 0.9, cur.z + 4); addCoin(cur.x, cur.y + 0.9, cur.z + 9);
+  // 8. up and down
+  [1.2, -1.5, 1.4, 1.0, -1.8, 1.3].forEach((r, i) => { next(2.1, r, 2.6, 2.6, (i % 2 ? 1 : -1) * 1.2); if (i === 2) addCoin(cur.x, cur.y + 0.9, cur.z + 1.3); });
+  // 9. elevator + moving-forward platform
+  next(2, 0, 3, 3);
+  hint('Súbete al ascensor ⬆');
+  next(1.5, 0, 3, 3, 0, { move: { axis: 'y', amp: 2.4, speed: 1.0, phase: 0 } });
+  cur.y += 2.4;
+  next(2.2, 1.6, 3.4, 3.4);
+  next(2.6, 0, 3, 3, 0, { move: { axis: 'z', amp: 2.2, speed: 1.2, phase: 0 } });
+  cur.z -= 2.2;
+  cpNext(2.4);
+  // 10. pillar hops, mixing heights, a couple moving
+  hint('Casi llegas… ¡Meowl te espera al final! 🦉');
+  for (let i = 0; i < 8; i++) {
+    const mv = (i === 3 || i === 6) ? { axis: 'x', amp: 1.8, speed: 1.6 } : null;
+    next(2.0 + (i % 3) * 0.35, [0.5, -0.4, 0.8, 0, 0.6, -0.6, 0.4, 0][i], 1.5, 1.5, [1.4, -1.4, 1.8, -1.8, 0, 1.4, -1.4, 0][i], { move: mv });
+    if (i === 4) addCoin(cur.x, cur.y + 0.9, cur.z + 0.75);
+  }
+  // 11. the long, happy final runway with Meowl at the end
+  next(2.2, 0, 7, 46, 0, { color: 0xffe14d });
+  for (let i = 0; i < 6; i++) addCoin(cur.x + (i % 2 ? 1.4 : -1.4), cur.y + 0.9, cur.z + 40 - i * 6);
+  END_Z = cur.z + 4;
+  meowl.position.set(cur.x, cur.y, END_Z);
+  meowl.rotation.y = 0; // faces +Z, toward the player coming from behind
+  document.getElementById('cpsMax').textContent = checkpoints.length;
+}
+
+// decorative drifting clouds
+const clouds = [];
+function buildClouds() {
+  const white = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0x9aa9bb });
+  for (let i = 0; i < 34; i++) {
+    const g = new THREE.Group();
+    const n = 4 + Math.floor(rnd() * 4);
+    for (let j = 0; j < n; j++) {
+      const m = new THREE.Mesh(G.sphere, white);
+      const r = 2 + rnd() * 2.6; m.scale.set(r * 1.3, r * 0.8, r);
+      m.position.set((j - n / 2) * 2.6, rnd() * 1.2, rnd() * 2 - 1); g.add(m);
+    }
+    g.position.set(rnd() * 240 - 120, 8 + rnd() * 34, 40 - rnd() * 360);
+    const sc = 0.8 + rnd() * 1.2; g.scale.setScalar(sc);
+    scene.add(g); clouds.push({ g, v: 0.6 + rnd() * 1.2 });
+  }
+}
+
+// =========================================================================
+// PLAYER, CAMERA, INPUT
+// =========================================================================
+const player = makeGubby(); scene.add(player);
+const meowl = makeMeowl(); scene.add(meowl);
+let END_Z = -200;
+
+const P = {
+  pos: new THREE.Vector3(0, 0.01, 1.5), vel: new THREE.Vector3(),
+  hx: 0.32, hz: 0.32, H: 1.0,
+  grounded: false, ground: null, coyote: 0, jumpBuf: 0, jumpHeld: false, cut: false,
+  spawn: new THREE.Vector3(0, 0.01, 1.5), facing: Math.PI, animT: 0, land: 0,
+};
+const WALK = 6.2, RUN = 10, JUMP = 11.2, GRAV = 30;
+const cam = { yaw: 0, pitch: 0.38, dist: 7.5, pos: new THREE.Vector3(0, 4, 9) };
+
+const keys = new Set(), pressed = new Set();
+addEventListener('keydown', e => {
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  if ([' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) e.preventDefault();
+  if (!keys.has(k)) pressed.add(k);
+  keys.add(k);
+  if (k === 'p' && (state === 'PLAY' || paused)) togglePause();
+});
+addEventListener('keyup', e => keys.delete(e.key.length === 1 ? e.key.toLowerCase() : e.key));
+addEventListener('blur', () => keys.clear());
+const down = (...ks) => ks.some(k => keys.has(k));
+
+// mouse look: pointer lock when available, drag-to-look as fallback
+let dragging = false;
+canvas.addEventListener('mousedown', () => {
+  if (state !== 'PLAY' || paused) return;
+  if (document.pointerLockElement !== canvas && canvas.requestPointerLock) {
+    try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (e) {}
+  }
+  dragging = true;
+});
+addEventListener('mouseup', () => dragging = false);
+addEventListener('mousemove', e => {
+  if (state !== 'PLAY' || paused) return;
+  if (document.pointerLockElement === canvas || dragging) {
+    cam.yaw -= e.movementX * 0.0028;
+    cam.pitch = THREE.MathUtils.clamp(cam.pitch + e.movementY * 0.0022, -0.15, 1.25);
+  }
+});
+canvas.addEventListener('wheel', e => { cam.dist = THREE.MathUtils.clamp(cam.dist + Math.sign(e.deltaY) * 0.8, 4, 14); e.preventDefault(); }, { passive: false });
+let lockedOnce = false;
+document.addEventListener('pointerlockchange', () => {
+  const locked = document.pointerLockElement === canvas;
+  if (locked) { lockedOnce = true; document.getElementById('lockHint').textContent = 'ESC para pausar'; }
+  else if (state === 'PLAY' && !paused && lockedOnce) togglePause(); // ESC released the mouse → pause
+});
+
+// =========================================================================
+// UI HELPERS
+// =========================================================================
+const $ = id => document.getElementById(id);
+let hintTimer = 0, toastTimer = 0;
+function showHint(html) { $('hint').innerHTML = html; $('hint').classList.add('show'); hintTimer = 6; }
+function toast(t) { $('toast').textContent = t; $('toast').classList.add('show'); toastTimer = 1.6; }
+let coinsN = 0, deaths = 0, cpN = 0;
+function hud() { $('coins').textContent = coinsN; $('deaths').textContent = deaths; $('cps').textContent = cpN; }
+
+// =========================================================================
+// GAME STATE
+// =========================================================================
+let state = 'TITLE', paused = false;
+function startGame() {
+  $('titleScreen').hidden = true; $('hud').hidden = false;
+  Sound.unlock(); Sound.startHappyLoop(); Sound.ui();
+  state = 'PLAY'; canvas.focus();
+  try { const r = canvas.requestPointerLock && canvas.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (e) {}
+}
+function togglePause() {
+  paused = !paused;
+  $('pauseOverlay').hidden = !paused;
+  $('pauseBtn').textContent = paused ? '▶' : '⏸';
+  Sound.setPaused(paused);
+  if (paused && document.pointerLockElement) document.exitPointerLock();
+  restartArmed = false; $('restartBtn').textContent = '↻ Reiniciar partida';
+}
+$('startBtn').onclick = startGame;
+$('pauseBtn').onclick = () => { if (state === 'PLAY') togglePause(); };
+$('resumeBtn').onclick = () => { togglePause(); canvas.focus(); try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (e) {} };
+let restartArmed = false;
+$('restartBtn').onclick = () => {
+  Sound.ui();
+  if (!restartArmed) { restartArmed = true; $('restartBtn').textContent = '¿Seguro? Clic otra vez'; return; }
+  location.reload();
+};
+$('exitBtn').onclick = $('homeBtn').onclick = () => { location.href = '/'; };
+$('againBtn').onclick = () => location.reload();
+
+function respawn() {
+  deaths++; hud(); Sound.lava();
+  $('fade').style.opacity = 1;
+  state = 'DEAD';
+  setTimeout(() => {
+    P.pos.copy(P.spawn); P.vel.set(0, 0, 0); P.ground = null;
+    cam.pos.set(P.pos.x + Math.sin(cam.yaw) * cam.dist, P.pos.y + 4, P.pos.z + Math.cos(cam.yaw) * cam.dist);
+    $('fade').style.opacity = 0; if (state === 'DEAD') state = 'PLAY';
+  }, 420);
+}
+
+// ---- ending: Meowl greets you, then a creepy little tease ----
+const DIALOG = [
+  '¡Hola! Soy Meowl 🦉',
+  '¿Viste? ¡Super fácil! En este obby nunca pasa nada malo…',
+  '…',
+  '…¿o sí?',
+];
+let dlgI = 0;
+function startEnding() {
+  state = 'END'; keys.clear();
+  if (document.pointerLockElement) document.exitPointerLock();
+  $('hint').classList.remove('show');
+  $('dialogue').hidden = false; dlgI = 0; $('dlgTxt').textContent = DIALOG[0]; Sound.ui();
+}
+function advanceDialog() {
+  if (state !== 'END') return;
+  dlgI++;
+  if (dlgI === 2) { Sound.stopHappyLoop(); Sound.glitchPulse(); }
+  if (dlgI === 3) { Sound.scream(); endGlitch = 1.4; }
+  if (dlgI >= DIALOG.length) {
+    $('dialogue').hidden = true; state = 'OVER';
+    $('endStats').textContent = `🪙 ${coinsN} / ${coins.length} monedas · 💀 ${deaths} caídas`;
+    setTimeout(() => { $('endScreen').hidden = false; }, 900);
+    return;
+  }
+  $('dlgTxt').textContent = DIALOG[dlgI]; Sound.ui();
+}
+$('dialogue').onclick = advanceDialog;
+let endGlitch = 0;
+
+// =========================================================================
+// PHYSICS
+// =========================================================================
+function overlaps(s) {
+  return P.pos.x + P.hx > s.min.x && P.pos.x - P.hx < s.max.x &&
+         P.pos.y + P.H > s.min.y && P.pos.y < s.max.y &&
+         P.pos.z + P.hz > s.min.z && P.pos.z - P.hz < s.max.z;
+}
+function moveAxis(axis, amt) {
+  if (!amt) return;
+  P.pos[axis] += amt;
+  for (const s of solids) {
+    if (!overlaps(s)) continue;
+    if (axis === 'y') {
+      if (amt < 0) { P.pos.y = s.max.y; if (P.vel.y < -12) P.land = 1; P.vel.y = 0; P.grounded = true; P.ground = s; }
+      else { P.pos.y = s.min.y - P.H; P.vel.y = 0; }
+    } else {
+      // small ledges: step up instead of getting stuck
+      if (P.grounded && s.max.y - P.pos.y < 0.4) { P.pos.y = s.max.y; continue; }
+      const h = axis === 'x' ? P.hx : P.hz;
+      P.pos[axis] = amt > 0 ? s.min[axis] - h : s.max[axis] + h;
+      P.vel[axis] = 0;
+    }
+  }
+}
+function updateMovers(t) {
+  for (const s of solids) {
+    if (!s.move) continue;
+    const m = s.move, old = s.mesh.position.clone();
+    s.mesh.position.copy(m.base);
+    s.mesh.position[m.axis] += Math.sin(t * m.speed + m.phase) * m.amp;
+    s.delta.subVectors(s.mesh.position, old);
+    syncBounds(s);
+  }
+}
+
+const _fwd = new THREE.Vector3(), _right = new THREE.Vector3(), _dir = new THREE.Vector3();
+function updatePlayer(dt) {
+  // ride whatever we were standing on
+  if (P.ground && P.ground.move) P.pos.add(P.ground.delta);
+
+  const f = (down('w', 'ArrowUp') ? 1 : 0) - (down('s', 'ArrowDown') ? 1 : 0);
+  const r = (down('d', 'ArrowRight') ? 1 : 0) - (down('a', 'ArrowLeft') ? 1 : 0);
+  _fwd.set(-Math.sin(cam.yaw), 0, -Math.cos(cam.yaw));
+  _right.set(Math.cos(cam.yaw), 0, -Math.sin(cam.yaw));
+  _dir.set(0, 0, 0).addScaledVector(_fwd, f).addScaledVector(_right, r);
+  const moving = _dir.lengthSq() > 0;
+  if (moving) _dir.normalize();
+  const sprint = down('Shift');
+  const speed = sprint ? RUN : WALK;
+  const accel = P.grounded ? 16 : 7;
+  const k = Math.min(1, accel * dt);
+  P.vel.x += (_dir.x * speed - P.vel.x) * k;
+  P.vel.z += (_dir.z * speed - P.vel.z) * k;
+
+  if (pressed.has(' ')) P.jumpBuf = 0.14;
+  P.jumpBuf -= dt; P.coyote -= dt;
+  if (P.grounded) P.coyote = 0.11;
+  if (P.jumpBuf > 0 && P.coyote > 0) {
+    P.vel.y = JUMP; P.jumpBuf = 0; P.coyote = 0; P.cut = false; P.grounded = false; P.ground = null; Sound.jump();
+  }
+  if (!down(' ') && P.vel.y > 0 && !P.cut) { P.vel.y *= 0.5; P.cut = true; }
+  P.vel.y = Math.max(P.vel.y - GRAV * dt, -38);
+
+  // sub-stepped axis-separated collision (no tunnelling through thin platforms)
+  const steps = Math.ceil(dt / (1 / 120));
+  const h = dt / steps;
+  const wasGrounded = P.grounded;
+  for (let i = 0; i < steps; i++) {
+    moveAxis('x', P.vel.x * h);
+    moveAxis('z', P.vel.z * h);
+    P.grounded = false;
+    moveAxis('y', P.vel.y * h || -0.002); // when resting, probe the floor so we stay grounded
+    if (!P.grounded) P.ground = null;
+  }
+  if (!wasGrounded && P.grounded && P.land) { P.land = 0.18; }
+
+  if (P.pos.y < LAVA_Y + 0.4) { respawn(); return; }
+
+  // facing + procedural animation
+  if (moving) {
+    const target = Math.atan2(_dir.x, _dir.z);
+    let d = target - P.facing; d = Math.atan2(Math.sin(d), Math.cos(d));
+    P.facing += d * Math.min(1, dt * 12);
+  }
+  const hs = Math.hypot(P.vel.x, P.vel.z);
+  P.animT += dt * (hs > 0.5 ? hs * 1.7 : 2);
+  player.position.copy(P.pos);
+  player.rotation.y = P.facing;
+  const { body, legs } = player.userData;
+  if (!P.grounded) {
+    const st = THREE.MathUtils.clamp(1 + P.vel.y / 60, 0.85, 1.18);
+    body.scale.set(2 - st, st, 2 - st);
+    legs.forEach((l, i) => l.rotation.x = (i < 2 ? -0.6 : 0.6));
+    body.position.y = 0;
+  } else {
+    P.land = Math.max(0, P.land - dt);
+    const sq = P.land > 0 ? 1 - P.land * 1.4 : 1;
+    body.scale.set(2 - sq, sq, 2 - sq);
+    const sw = hs > 0.5 ? Math.sin(P.animT) * 0.7 : 0;
+    legs.forEach((l, i) => l.rotation.x = (i === 0 || i === 3) ? sw : -sw);
+    body.position.y = hs > 0.5 ? Math.abs(Math.sin(P.animT)) * 0.07 : Math.sin(P.animT * 0.8) * 0.015;
+  }
+
+  // checkpoints, coins, hints, the end
+  for (const cp of checkpoints) {
+    if (!cp.reached && P.grounded && Math.abs(P.pos.x - cp.pos.x) < 2.6 && Math.abs(P.pos.z - cp.pos.z) < 2.6 && Math.abs(P.pos.y - cp.pos.y) < 0.3) {
+      cp.reached = true; cpN++; hud(); P.spawn.set(cp.pos.x, cp.pos.y + 0.01, cp.pos.z);
+      cp.cloth.material = new THREE.MeshToonMaterial({ color: 0x5ee07a, gradientMap: toonRamp, side: THREE.DoubleSide });
+      Sound.activate(); toast('🚩 ¡Punto de control!');
+    }
+  }
+  for (const c of coins) {
+    if (!c.taken && c.mesh.position.distanceTo(_tmp.set(P.pos.x, P.pos.y + 0.5, P.pos.z)) < 0.95) {
+      c.taken = true; c.mesh.visible = false; coinsN++; hud(); Sound.coin();
+    }
+  }
+  for (const hn of hints) if (!hn.shown && P.pos.z < hn.z) { hn.shown = true; showHint(hn.html); }
+  const prog = THREE.MathUtils.clamp((1.5 - P.pos.z) / (1.5 - END_Z), 0, 1);
+  $('progFill').style.width = (prog * 100).toFixed(1) + '%';
+  if (P.pos.distanceTo(meowl.position) < 3.4) startEnding();
+}
+const _tmp = new THREE.Vector3();
+
+function updateCamera(dt, t) {
+  const target = _tmp.set(P.pos.x, P.pos.y + 1.1, P.pos.z);
+  if (state === 'END' || state === 'OVER') {
+    // frame Meowl and the player together
+    const mid = new THREE.Vector3().lerpVectors(P.pos, meowl.position, 0.5); mid.y += 1.6;
+    const want = new THREE.Vector3(mid.x + 5.5, mid.y + 2.2, mid.z + 5.5);
+    cam.pos.lerp(want, 1 - Math.exp(-3 * dt));
+    camera.position.copy(cam.pos);
+    if (endGlitch > 0) camera.position.add(new THREE.Vector3((Math.random() - .5) * endGlitch * .3, (Math.random() - .5) * endGlitch * .3, 0));
+    camera.lookAt(mid);
+    return;
+  }
+  const cp = Math.cos(cam.pitch);
+  const want = new THREE.Vector3(
+    target.x + Math.sin(cam.yaw) * cp * cam.dist,
+    target.y + Math.sin(cam.pitch) * cam.dist,
+    target.z + Math.cos(cam.yaw) * cp * cam.dist);
+  cam.pos.lerp(want, 1 - Math.exp(-12 * dt));
+  camera.position.copy(cam.pos);
+  camera.lookAt(target);
+}
+
+// =========================================================================
+// MAIN LOOP
+// =========================================================================
+buildClouds();
+buildLevel();
+hud();
+cam.yaw = 0;
+const clock = new THREE.Clock();
+let time = 0;
+function frame() {
+  requestAnimationFrame(frame);
+  tick(Math.min(clock.getDelta(), 1 / 30));
+}
+function tick(dt) {
+  if (!paused) {
+    time += dt;
+    updateMovers(time);
+    if (state === 'PLAY') updatePlayer(dt);
+    else if (state === 'TITLE') { cam.yaw += dt * 0.12; }
+    // world animation
+    lavaMat.uniforms.t.value = time;
+    for (const c of clouds) { c.g.position.x += c.v * dt; if (c.g.position.x > 130) c.g.position.x = -130; }
+    for (const c of coins) if (!c.taken) { c.mesh.rotation.z = time * 2.4; c.mesh.position.y = c.baseY + Math.sin(time * 2 + c.mesh.position.z) * 0.12; }
+    for (const cp of checkpoints) {
+      const pos = cp.cloth.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i++) { const x = pos.getX(i) + 0.5; pos.setZ(i, Math.sin(time * 5 + x * 5) * 0.08 * x); }
+      pos.needsUpdate = true;
+    }
+    const mb = meowl.userData.body;
+    mb.position.y = Math.abs(Math.sin(time * 2.2)) * 0.12;
+    mb.rotation.z = Math.sin(time * 1.1) * 0.06;
+    if (state === 'END' || state === 'OVER') {
+      meowl.lookAt(P.pos.x, meowl.position.y, P.pos.z);
+      if (endGlitch > 0) { endGlitch = Math.max(0, endGlitch - dt); mb.scale.set(1 + (Math.random() - .5) * endGlitch * .4, 1 + (Math.random() - .5) * endGlitch * .4, 1); scene.fog.color.setHex(0x7a1020); sky.material.uniforms.bottom.value.setHex(0x7a1020); sky.material.uniforms.top.value.setHex(0x14030a); }
+      else if (state === 'OVER') { mb.scale.set(1, 1, 1); }
+    }
+    if (state === 'END' && (pressed.has(' ') || pressed.has('Enter'))) advanceDialog();
+    if (hintTimer > 0 && (hintTimer -= dt) <= 0) $('hint').classList.remove('show');
+    if (toastTimer > 0 && (toastTimer -= dt) <= 0) $('toast').classList.remove('show');
+  }
+  if (state === 'TITLE') {
+    const t = new THREE.Vector3(0, 1.2, 0);
+    camera.position.set(Math.sin(cam.yaw) * 11, 5.5, Math.cos(cam.yaw) * 11);
+    camera.lookAt(t); cam.pos.copy(camera.position);
+  } else updateCamera(dt, time);
+  if (state === 'TITLE') { player.position.copy(P.pos); player.rotation.y = P.facing + time * 0.4; }
+  sun.position.set(P.pos.x + 18, P.pos.y + 34, P.pos.z + 12);
+  sun.target.position.copy(P.pos);
+  sky.position.copy(camera.position);
+  pressed.clear();
+  renderer.render(scene, camera);
+}
+P.facing = Math.PI; // start facing away from the camera, toward the course
+frame();
+</script>
+</body>
+</html>
