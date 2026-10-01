@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Super Easy Obby 3D</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -10,7 +10,25 @@
 <style>
   :root{--ink:#f4f6fb;--dim:#9aa6bd;--panel:rgba(14,18,28,.84);--line:rgba(255,255,255,.12);--cyan:#4fd6e8;--amber:#f0a53a;--pink:#ff5d8a}
   *{box-sizing:border-box;margin:0;padding:0}
-  html,body{height:100%;overflow:hidden;background:#9fd4f7;color:var(--ink);font-family:'Fredoka',system-ui,sans-serif}
+  html,body{height:100%;overflow:hidden;background:#9fd4f7;color:var(--ink);font-family:'Fredoka',system-ui,sans-serif;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+  canvas#c{touch-action:none}
+  /* ---------- phone controls ---------- */
+  #touchUI{position:fixed;inset:0;z-index:12;pointer-events:none}
+  #touchUI[hidden],.tb[hidden]{display:none}
+  #joy{position:absolute;left:calc(22px + env(safe-area-inset-left));bottom:calc(22px + env(safe-area-inset-bottom));width:136px;height:136px;border-radius:50%;background:rgba(14,18,28,.38);border:2px solid rgba(255,255,255,.28);pointer-events:auto;touch-action:none}
+  #joyKnob{position:absolute;left:50%;top:50%;width:60px;height:60px;margin:-30px 0 0 -30px;border-radius:50%;background:rgba(255,255,255,.85);box-shadow:0 3px 10px rgba(0,0,0,.4)}
+  .tb{position:absolute;pointer-events:auto;touch-action:none;min-width:0;padding:0;border-radius:50%;display:grid;place-items:center;align-content:center;background:rgba(14,18,28,.55);border:2px solid rgba(255,255,255,.3);color:#fff;font-size:26px;line-height:1}
+  .tb small{display:block;font-size:10px;font-weight:600;margin-top:2px;opacity:.85}
+  .tb.down{transform:scale(.92);background:rgba(79,214,232,.45)}
+  .tb.on{background:rgba(94,224,122,.55);border-color:#5ee07a}
+  #tJump{right:calc(22px + env(safe-area-inset-right));bottom:calc(26px + env(safe-area-inset-bottom));width:92px;height:92px;font-size:34px}
+  #tUse{right:calc(128px + env(safe-area-inset-right));bottom:calc(30px + env(safe-area-inset-bottom));width:66px;height:66px}
+  #tAtk{right:calc(36px + env(safe-area-inset-right));bottom:calc(134px + env(safe-area-inset-bottom));width:66px;height:66px}
+  #tRun{left:calc(48px + env(safe-area-inset-left));bottom:calc(176px + env(safe-area-inset-bottom));width:62px;height:62px;font-size:24px}
+  body.touch #lockHint,body.touch #weapon{display:none}
+  body.touch #hint{bottom:auto;top:96px}
+  body.touch #prompt{bottom:auto;top:62%}
+  .overlay{touch-action:pan-y}
   canvas#c{position:fixed;inset:0;width:100vw;height:100vh;display:block;outline:none}
   .overlay{position:fixed;inset:0;display:grid;place-items:center;padding:16px;z-index:20;background:rgba(8,12,20,.45);backdrop-filter:blur(3px);overflow-y:auto}
   .overlay[hidden],#hud[hidden],#dialogue[hidden],.hud-el[hidden],#npcWarn[hidden]{display:none}
@@ -102,6 +120,13 @@
   <div id="crosshair" class="hud-el" hidden></div>
   <div id="lockHint">Arrastra con el mouse para girar la cámara</div>
 </div>
+<div id="touchUI" hidden>
+  <div id="joy"><div id="joyKnob"></div></div>
+  <button class="tb" id="tRun">🏃<small>Correr</small></button>
+  <button class="tb" id="tJump">⤒<small>Saltar</small></button>
+  <button class="tb" id="tUse">✋<small>Usar</small></button>
+  <button class="tb" id="tAtk"><span>⚔️</span><small>Atacar</small></button>
+</div>
 <div id="npcWarn" hidden><span>👁 NPC_000 va a abrir el ojo… ¡prepárate para congelarte!</span><b id="npcWarnN">3</b></div>
 <div id="redflash"></div>
 <div id="fade"></div>
@@ -123,7 +148,7 @@
       <div class="k"><b>P / ESC</b>Pausa</div>
     </div>
     <button class="primary" id="startBtn">▶ Jugar</button>
-    <div class="note">Necesitas teclado y mouse. El shift lock se activa desde la pausa.</div>
+    <div class="note" id="titleNote">Necesitas teclado y mouse (o juega desde el celu). El shift lock se activa desde la pausa.</div>
   </div>
 </div>
 
@@ -156,6 +181,9 @@
 
 <script type="module">
 import * as THREE from 'three';
+
+// phones/tablets get on-screen controls (add ?touch=1 to force them on a computer)
+const isTouch = matchMedia('(pointer: coarse)').matches || /[?&]touch=1/.test(location.search);
 
 // ---------- audio: small synth engine (buses + compressor, enveloped voices, scheduled music) ----------
 const Sound = (() => {
@@ -276,7 +304,7 @@ const Sound = (() => {
 // =========================================================================
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, isTouch ? 1.5 : 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.NeutralToneMapping;
@@ -307,7 +335,7 @@ const hemi = new THREE.HemisphereLight(0xd6ecff, 0xffb27a, 0.9);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff1dc, 1.9);
 sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.mapSize.set(isTouch ? 1024 : 2048, isTouch ? 1024 : 2048);
 Object.assign(sun.shadow.camera, { left: -36, right: 36, top: 36, bottom: -36, near: 1, far: 150 });
 sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
 scene.add(sun, sun.target);
@@ -1626,7 +1654,7 @@ const down = (...ks) => ks.some(k => keys.has(k));
 
 // mouse: shift lock and first person use pointer lock; otherwise drag to turn the camera, click to attack
 let dragging = false, dragMoved = 0, clickAttack = false, suppressPause = false, lockedOnce = false;
-const wantsLock = () => settings.shiftLock || isFP();
+const wantsLock = () => !isTouch && (settings.shiftLock || isFP());
 function lockMouse() { try { const r = canvas.requestPointerLock && canvas.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (e) {} }
 function unlockMouse() { if (document.pointerLockElement) { suppressPause = true; document.exitPointerLock(); } }
 canvas.addEventListener('mousedown', e => {
@@ -1672,10 +1700,10 @@ function crosshairMode() {
 // =========================================================================
 function $(id) { return document.getElementById(id); }
 let hintTimer = 0, toastTimer = 0, bannerTimer = 0;
-function showHint(html) { $('hint').innerHTML = html; $('hint').classList.add('show'); hintTimer = 6; }
+function showHint(html) { $('hint').innerHTML = touchText(html); $('hint').classList.add('show'); hintTimer = 6; }
 function toast(t) { $('toast').textContent = t; $('toast').classList.add('show'); toastTimer = 1.8; }
 function banner(t, s = 3.5) { $('banner').textContent = t; $('banner').classList.add('show'); bannerTimer = s; }
-function prompt(html, danger) { const el = $('prompt'); if (html) { el.innerHTML = html; el.hidden = false; el.classList.toggle('danger', !!danger); } else el.hidden = true; }
+function prompt(html, danger) { const el = $('prompt'); if (html) { el.innerHTML = touchText(html); el.hidden = false; el.classList.toggle('danger', !!danger); } else el.hidden = true; }
 let deaths = 0, cpN = 0;
 function hud() {
   $('coins').textContent = stats.coins; $('deaths').textContent = deaths; $('cps').textContent = cpN;
@@ -1997,6 +2025,8 @@ function updatePlayer(dt) {
 
   let f = (down('w', 'ArrowUp') ? 1 : 0) - (down('s', 'ArrowDown') ? 1 : 0);
   let r = (down('d', 'ArrowRight') ? 1 : 0) - (down('a', 'ArrowLeft') ? 1 : 0);
+  const joyMag = Math.min(1, Math.hypot(joy.x, joy.y));
+  if (joyMag > 0.18) { f = -joy.y; r = joy.x; }
   if (stats.rooted > 0) f = r = 0;
   inputMoving = f !== 0 || r !== 0 || pressed.has(' ');
   _fwd.set(-Math.sin(cam.yaw), 0, -Math.cos(cam.yaw));
@@ -2004,7 +2034,8 @@ function updatePlayer(dt) {
   _dir.set(0, 0, 0).addScaledVector(_fwd, f).addScaledVector(_right, r);
   const moving = _dir.lengthSq() > 0;
   if (moving) _dir.normalize();
-  const speed = (down('Shift') ? RUN : WALK) * (1 + stats.spd);
+  const analog = joyMag > 0.18 ? Math.max(0.4, joyMag) : 1; // a light push on the joystick walks slower
+  const speed = (down('Shift') || touchRun ? RUN : WALK) * (1 + stats.spd) * analog;
   const k = Math.min(1, (P.grounded ? 16 : 7) * dt);
   P.vel.x += (_dir.x * speed - P.vel.x) * k;
   P.vel.z += (_dir.z * speed - P.vel.z) * k;
@@ -2196,6 +2227,82 @@ function updateCamera(dt) {
 }
 
 // =========================================================================
+// PHONE CONTROLS: joystick (left), jump / use / attack (right), sprint toggle
+// =========================================================================
+const joy = { id: null, x: 0, y: 0, cx: 0, cy: 0 };
+const capture = (el, e) => { try { el.setPointerCapture(e.pointerId); } catch (err) {} };
+let touchRun = false, look = null;
+function touchText(html) {
+  if (!isTouch || !html) return html;
+  return html
+    .replace(/Muévete con <kbd>WASD<\/kbd> · arrastra con el <kbd>mouse<\/kbd> para girar la cámara/, 'Muévete con el <kbd>joystick</kbd> · desliza el dedo a la derecha para girar la cámara')
+    .replace(/Mantén <kbd>SHIFT<\/kbd> para correr/, 'Activa <kbd>🏃</kbd> para correr')
+    .replace(/<kbd>clic<\/kbd> o <kbd>F<\/kbd>/g, '<kbd>⚔️</kbd>')
+    .replace(/haz clic para mirar con el mouse/, 'desliza el dedo para mirar')
+    .replace(/<kbd>ESPACIO<\/kbd>/g, '<kbd>⤒</kbd>')
+    .replace(/<kbd>SHIFT<\/kbd>/g, '<kbd>🏃</kbd>')
+    .replace(/<kbd>E<\/kbd>/g, '<kbd>✋</kbd>');
+}
+if (isTouch) {
+  document.body.classList.add('touch');
+  $('titleNote').textContent = 'En el celu: joystick a la izquierda y botones a la derecha. Desliza el dedo para girar la cámara. ¡Pon la pantalla en horizontal! 📱';
+  const joyEl = $('joy'), knob = $('joyKnob');
+  const moveJoy = (e) => {
+    let dx = e.clientX - joy.cx, dy = e.clientY - joy.cy;
+    const R = 52, d = Math.hypot(dx, dy);
+    if (d > R) { dx *= R / d; dy *= R / d; }
+    joy.x = dx / R; joy.y = dy / R;
+    knob.style.transform = `translate(${dx}px,${dy}px)`;
+  };
+  const endJoy = () => { joy.id = null; joy.x = joy.y = 0; knob.style.transform = ''; };
+  joyEl.addEventListener('pointerdown', e => {
+    e.preventDefault(); joy.id = e.pointerId; capture(joyEl, e);
+    const r = joyEl.getBoundingClientRect(); joy.cx = r.left + r.width / 2; joy.cy = r.top + r.height / 2; moveJoy(e);
+  });
+  joyEl.addEventListener('pointermove', e => { if (e.pointerId === joy.id) moveJoy(e); });
+  joyEl.addEventListener('pointerup', endJoy); joyEl.addEventListener('pointercancel', endJoy);
+  // drag anywhere else on the screen to turn the camera (or look around in first person)
+  canvas.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse') return;
+    e.preventDefault();
+    if (state === 'CUTSCENE') { advanceDialog(); return; }
+    if (look) return;
+    look = { id: e.pointerId, x: e.clientX, y: e.clientY }; capture(canvas, e);
+  });
+  canvas.addEventListener('pointermove', e => {
+    if (!look || e.pointerId !== look.id || paused || !PLAYABLE.has(state)) return;
+    const dx = e.clientX - look.x, dy = e.clientY - look.y; look.x = e.clientX; look.y = e.clientY;
+    cam.yaw -= dx * 0.0065;
+    const lim = isFP() ? [-0.95, 1.75] : [-0.15, 1.25];
+    cam.pitch = THREE.MathUtils.clamp(cam.pitch + dy * 0.005, lim[0], lim[1]);
+  });
+  const endLook = e => { if (look && e.pointerId === look.id) look = null; };
+  canvas.addEventListener('pointerup', endLook); canvas.addEventListener('pointercancel', endLook);
+  const hold = (id, onDown, onUp) => {
+    const el = $(id);
+    el.addEventListener('pointerdown', e => { e.preventDefault(); el.classList.add('down'); capture(el, e); onDown(); });
+    const up = () => { el.classList.remove('down'); if (onUp) onUp(); };
+    el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+    el.addEventListener('contextmenu', e => e.preventDefault());
+  };
+  hold('tJump', () => { pressed.add(' '); keys.add(' '); }, () => keys.delete(' '));
+  hold('tUse', () => pressed.add('e'));
+  hold('tAtk', () => { clickAttack = true; });
+  hold('tRun', () => { touchRun = !touchRun; $('tRun').classList.toggle('on', touchRun); Sound.ui(); });
+}
+let touchShown = null;
+function updateTouchUI() {
+  if (!isTouch) return;
+  const show = PLAYABLE.has(state) && !paused;
+  if (show !== touchShown) {
+    touchShown = show; $('touchUI').hidden = !show;
+    if (!show) { joy.x = joy.y = 0; joy.id = null; $('joyKnob').style.transform = ''; keys.delete(' '); }
+  }
+  const atk = $('tAtk'); atk.hidden = loadout.item === 'none';
+  atk.firstChild.textContent = loadout.item === 'pistol' ? '🔫' : '⚔️';
+}
+
+// =========================================================================
 // MAIN LOOP
 // =========================================================================
 const clouds = [];
@@ -2224,6 +2331,7 @@ function frame() {
   tick(Math.min(clock.getDelta(), 1 / 30));
 }
 function tick(dt) {
+  updateTouchUI();
   if (!paused) {
     time += dt;
     updateMovers(time);
